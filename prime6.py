@@ -1452,7 +1452,16 @@ def main():
         - [PrimerBank Database](https://pga.mgh.harvard.edu/primerbank/)
         - [qPCR Guidelines](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3573776/)
         """)
-        
+
+        # --- START: ADD THIS CODE FOR THE DONATION BUTTON ---
+        st.markdown("### 🙏 Support This App")
+        st.link_button(
+            "Buy Me a Coffee ☕",
+            "https://buymeacoffee.com/primerquest", # <-- IMPORTANT: REPLACE WITH YOUR LINK
+            use_container_width=True
+        )
+        # --- END: ADD THIS CODE FOR THE DONATION BUTTON ---
+
         # Check BioPython status
         with st.expander("ℹ️ System Status", expanded=False):
             if SeqIO:
@@ -1731,9 +1740,9 @@ ATGGCAGAAATCGGTGTCAACGGATTTGGC...""",
     st.markdown("""
     <div style='text-align: center; color: #718096; padding: 2rem;'>
         <p style="font-size: 0.875rem;">
-        PrimersQuest Pro v2.1 | Enhanced with multi-primer PrimerBank parsing<br>
+        PrimersQuest Pro v2.1 | Advanced primer design tool with enhanced algorithms<br>
         Powered by Primer3 | Integrated with NCBI & Harvard PrimerBank<br>
-        Made with ❤️ for the scientific community
+        Made with ❤️ by <a href="https://www.linkedin.com/in/ahmed-bey-chaker-6b3908192/" target="_blank" style="color: #718096; text-decoration: underline;">Dr. Ahmed bey Chaker</a> for scientists
         </p>
     </div>
     """, unsafe_allow_html=True)

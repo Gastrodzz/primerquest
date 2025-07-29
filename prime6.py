@@ -1472,7 +1472,7 @@ def main():
         - [Primer3 Documentation](http://primer3.org/)
         - [NCBI Primer-BLAST](https://www.ncbi.nlm.nih.gov/tools/primer-blast/)
         - [PrimerBank Database](https://pga.mgh.harvard.edu/primerbank/)
-        - [qPCR Guidelines](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3573776/)
+        - [qPCR Guidelines](https://pubmed.ncbi.nlm.nih.gov/19246619/)
         """)
 
         # --- Custom Donate Button ---

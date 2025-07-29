@@ -1,6 +1,6 @@
 """
-qPCR Primer Designer Pro v2.1
-Enhanced version with improved PrimerBank multi-primer parsing and native Streamlit components for display.
+PrimersQuest Pro v2.1
+An advanced tool for qPCR primer design, created to support the scientific community.
 
 Key Features:
 - Robust primer design with fallback strategies
@@ -9,7 +9,7 @@ Key Features:
 - Export functionality (CSV/JSON/Lab format)
 - Works with or without BioPython
 
-Author: Enhanced version with improved PrimerBank functionality
+Author: Dr. Ahmed bey Chaker, King's College London
 License: MIT
 """
 
@@ -91,7 +91,7 @@ def Tm_NN(sequence, dnac=50, saltc=50):
 
 # Page configuration
 st.set_page_config(
-    page_title="PrimersQuest Pro v2.1",
+    page_title="PrimersQuest Pro",
     page_icon="🧬",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -139,6 +139,28 @@ st.markdown("""
         background-color: #667eea;
         color: white;
         border-radius: 12px;
+    }
+
+    /* Custom Donate Button Style */
+    .custom-donate-button {
+        background: linear-gradient(135deg, #FFDD00 0%, #FBB034 100%);
+        color: #000000 !important;
+        padding: 0.85rem 1.5rem;
+        border-radius: 12px;
+        font-weight: 700;
+        font-size: 1.1rem;
+        text-align: center;
+        text-decoration: none !important;
+        display: block;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px -1px rgba(251, 176, 52, 0.4);
+        border: none;
+    }
+
+    .custom-donate-button:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 20px -3px rgba(251, 176, 52, 0.6);
+        color: #000000 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1406,10 +1428,10 @@ def main():
         st.stop()
     
     # Header
-    st.markdown('<h1 class="main-header">PrimersQuest Pro v2.1</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">PrimersQuest Pro</h1>', unsafe_allow_html=True)
     st.markdown("""
     <p style="text-align: center; color: #718096; font-size: 1.125rem;">
-    Advanced primer design tool with enhanced algorithms
+    An advanced tool for qPCR primer design and validation
     </p>
     """, unsafe_allow_html=True)
     
@@ -1453,14 +1475,14 @@ def main():
         - [qPCR Guidelines](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3573776/)
         """)
 
-        # --- START: ADD THIS CODE FOR THE DONATION BUTTON ---
+        # --- Custom Donate Button ---
         st.markdown("### 🙏 Support This App")
-        st.link_button(
-            "Buy Me a Coffee ☕",
-            "https://buymeacoffee.com/primerquest", # <-- IMPORTANT: REPLACE WITH YOUR LINK
-            use_container_width=True
-        )
-        # --- END: ADD THIS CODE FOR THE DONATION BUTTON ---
+        button_html = """
+        <a href="https://www.buymeacoffee.com/yourusername" target="_blank" class="custom-donate-button">
+            Buy Me a Coffee ☕
+        </a>
+        """
+        st.markdown(button_html, unsafe_allow_html=True)
 
         # Check BioPython status
         with st.expander("ℹ️ System Status", expanded=False):
@@ -1474,7 +1496,7 @@ def main():
         "🎯 Custom Design", 
         "🔍 PrimerBank Search", 
         "📊 Analysis Dashboard",
-        "📖 User Guide"
+        "ℹ️ About"
     ])
     
     with tab1:
@@ -1657,82 +1679,37 @@ ATGGCAGAAATCGGTGTCAACGGATTTGGC...""",
             st.info("🔬 No primer data available. Design primers or search PrimerBank first!")
     
     with tab4:
-        st.markdown('<h2 class="sub-header">User Guide & Best Practices</h2>', unsafe_allow_html=True)
+        st.markdown('<h2 class="sub-header">About PrimersQuest Pro</h2>', unsafe_allow_html=True)
         
         st.markdown("""
-        ### 🎯 Getting Started
+        **PrimersQuest Pro** was developed with love by **Dr. Ahmed bey Chaker**, a Research Associate at King's College London, to support the scientific community.
         
-        #### 1. **Custom Primer Design**
-        - Paste your target sequence in FASTA format or as raw DNA sequence
-        - Adjust parameters in the sidebar if needed
-        - Click "Design Primers" to generate optimized primer pairs
+        This tool was created to simplify and accelerate the often tedious process of designing high-quality primers for qPCR experiments. By integrating the robust algorithms of Primer3 with a user-friendly interface and direct access to the validated PrimerBank database, we hope to make your research more efficient and reliable.
+
+        If you find this application useful, please consider supporting its development and maintenance. Your contribution helps keep this tool free and available to all researchers.
+        """)
         
-        #### 2. **PrimerBank Search**
-        - Enter the official gene symbol (e.g., GAPDH, not glyceraldehyde-3-phosphate dehydrogenase)
-        - Select the appropriate species
-        - Click "Search PrimerBank" to find experimentally validated primers
-        - **NEW:** View all available primer sets with detailed analysis
+        st.markdown("---")
+
+        st.markdown("""
+        ### 🎯 Quick Guide
         
-        ### 🔬 Understanding Confidence Scores
+        1.  **Custom Primer Design:**
+            - Go to the **"Custom Design"** tab.
+            - Paste your target DNA sequence (raw or FASTA).
+            - Adjust parameters in the sidebar if needed (e.g., Tm, product size).
+            - Click **"Design Primers"** to get a list of optimized primer pairs.
         
-        Our advanced scoring algorithm evaluates primers based on:
-        
-        - **Tm Difference (25%)**: Optimal ≤1°C between forward and reverse
-        - **GC Content (20%)**: Optimal 45-55%
-        - **Product Size (15%)**: Optimal 80-120 bp for qPCR
-        - **Self-Complementarity (15%)**: Lower is better
-        - **3' End Stability (10%)**: G or C at 3' end preferred
-        - **Sequence Complexity (10%)**: Avoids repeats and poly-runs
-        - **Overall Penalty (5%)**: Primer3's internal scoring
-        
-        ### 📊 Interpreting Results
-        
-        - **Confidence ≥85%**: Excellent primers, ready for use
-        - **Confidence 70-84%**: Good primers, may need minor optimization
-        - **Confidence <70%**: Consider alternative primer pairs
-        
-        ### 🛠️ Optimization Tips
-        
-        1. **For difficult sequences:**
-           - Try relaxing Tm constraints (±1°C)
-           - Allow wider product size range
-           - Consider different sequence regions
-        
-        2. **For high specificity:**
-           - Always validate with NCBI Primer-BLAST
-           - Check for SNPs in primer binding sites
-           - Consider species-specific validation
-        
-        3. **For multiplex PCR:**
-           - Ensure similar Tm for all primer pairs
-           - Check for primer-primer interactions
-           - Validate amplicon sizes don't overlap
-        
-        ### 🔍 PrimerBank Features (v2.1)
-        
-        **NEW in v2.1:**
-        - **Multi-primer parsing**: Now correctly displays ALL primer sets from PrimerBank
-        - **Comparative analysis**: Compare multiple primer sets side-by-side
-        - **Quality scoring**: Automatic quality assessment for each primer set
-        - **Enhanced visualization**: Better charts and metrics for decision making
-        - **Flexible export**: Download all primer sets in CSV, JSON, or lab format
-        
-        ### ⚡ Troubleshooting
-        
-        **No primers found?**
-        - Check sequence quality (too many Ns?)
-        - Try different sequence regions
-        - Relax design constraints
-        
-        **Low confidence scores?**
-        - Review problematic parameters
-        - Consider manual optimization
-        - Try PrimerBank for validated alternatives
-        
-        **PrimerBank not showing all primers?**
-        - Check gene symbol spelling
-        - Verify species selection
-        - Some genes may have limited primer sets available
+        2.  **Search Validated Primers:**
+            - Go to the **"PrimerBank Search"** tab.
+            - Enter an official gene symbol (e.g., GAPDH).
+            - Select the correct species (Human or Mouse).
+            - Click **"Search PrimerBank"** to find experimentally validated primers.
+
+        ### 🔬 Best Practices
+        - **Always Validate:** Use the "Validate with Primer-BLAST" button to check the specificity of your primers against the target genome.
+        - **Check for SNPs:** Be aware of single nucleotide polymorphisms (SNPs) that may fall within your primer binding sites, as they can affect amplification efficiency.
+        - **Use High-Quality Sequences:** The quality of your input sequence directly impacts the quality of the primer design.
         """)
     
     # Footer
@@ -1740,9 +1717,9 @@ ATGGCAGAAATCGGTGTCAACGGATTTGGC...""",
     st.markdown("""
     <div style='text-align: center; color: #718096; padding: 2rem;'>
         <p style="font-size: 0.875rem;">
-        PrimersQuest Pro v2.1 | Advanced primer design tool with enhanced algorithms<br>
+        PrimersQuest Pro | An advanced tool for the scientific community<br>
         Powered by Primer3 | Integrated with NCBI & Harvard PrimerBank<br>
-        Made with ❤️ by <a href="https://www.linkedin.com/in/ahmed-bey-chaker-6b3908192/" target="_blank" style="color: #718096; text-decoration: underline;">Dr. Ahmed bey Chaker</a> for scientists
+        Made with ❤️ by <a href="https://www.linkedin.com/in/ahmed-bey-chaker-6b3908192/" target="_blank" style="color: #718096; text-decoration: underline;">Dr. Ahmed bey Chaker</a>
         </p>
     </div>
     """, unsafe_allow_html=True)

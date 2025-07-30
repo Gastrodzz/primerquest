@@ -1478,7 +1478,7 @@ def main():
         # --- Custom Donate Button ---
         st.markdown("### 🙏 Support This App")
         button_html = """
-        <a href="https://www.buymeacoffee.com/yourusername" target="_blank" class="custom-donate-button">
+        <a href="https://www.buymeacoffee.com/primerquest" target="_blank" class="custom-donate-button">
             Buy Me a Coffee ☕
         </a>
         """

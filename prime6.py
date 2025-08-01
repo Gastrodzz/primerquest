@@ -96,7 +96,44 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+# --- SEO & GOOGLE ANALYTICS ---
 
+# Define the SEO metadata
+seo_description = """
+PrimersQuest Pro is an advanced, free-to-use web tool for designing and validating qPCR primers. 
+It integrates custom primer design using Primer3 with a validated primer search from Harvard's PrimerBank database. 
+Ideal for researchers in molecular biology and bioinformatics.
+"""
+
+seo_keywords = "qPCR, primer design, real-time PCR, bioinformatics, Primer3, PrimerBank, molecular biology, computational biology, Streamlit, Python"
+
+# Define the Google Analytics placeholder
+GA_ID = "G-NGW0S1841L" 
+
+# HTML for injection
+# This combines SEO meta tags and the Google Analytics script into one block
+# It will be injected into the <head> of the HTML page
+HTML_TO_INJECT = f"""
+<head>
+    <meta name="description" content="{seo_description}">
+    <meta name="keywords" content="{seo_keywords}">
+    <meta name="author" content="Dr. Ahmed bey Chaker">
+    
+    <script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){{dataLayer.push(arguments);}}
+      gtag('js', new Date());
+      gtag('config', '{GA_ID}');
+    </script>
+</head>
+"""
+
+# Inject the HTML into the Streamlit app
+# We use st.markdown to inject it. It's a common way to add custom HTML.
+st.markdown(HTML_TO_INJECT, unsafe_allow_html=True)
+
+# --- END OF SEO & ANALYTICS BLOCK ---
 # Enhanced CSS for modern design
 st.markdown("""
 <style>

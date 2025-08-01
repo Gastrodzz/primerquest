@@ -89,13 +89,114 @@ def Tm_NN(sequence, dnac=50, saltc=50):
     
     return basic_tm + salt_correction
 
-# Page configuration
+# Page configuration with SEO
 st.set_page_config(
-    page_title="PrimersQuest Pro",
+    page_title="PrimersQuest Pro - Free qPCR Primer Design Tool | PrimerBank Search",
     page_icon="🧬",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'About': "PrimersQuest Pro - Advanced qPCR primer design tool by Dr. Ahmed bey Chaker"
+    }
 )
+
+# SEO Meta Tags and Google Analytics
+st.markdown("""
+<head>
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-NGW0S1841L"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-NGW0S1841L');
+        
+        // Custom event tracking function
+        function trackEvent(category, action, label, value) {
+            if (typeof gtag !== 'undefined') {
+                gtag('event', action, {
+                    'event_category': category,
+                    'event_label': label,
+                    'value': value
+                });
+            }
+        }
+        
+        // Track page sections
+        document.addEventListener('DOMContentLoaded', function() {
+            // Track tab views
+            const observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    if (mutation.type === 'attributes' && mutation.attributeName === 'aria-selected') {
+                        const tab = mutation.target;
+                        if (tab.getAttribute('aria-selected') === 'true') {
+                            trackEvent('Navigation', 'tab_view', tab.textContent);
+                        }
+                    }
+                });
+            });
+            
+            // Observe all tabs
+            setTimeout(function() {
+                document.querySelectorAll('[role="tab"]').forEach(tab => {
+                    observer.observe(tab, { attributes: true });
+                });
+            }, 1000);
+        });
+    </script>
+    
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="PrimersQuest Pro - Free online qPCR primer design tool with PrimerBank integration. Design and validate primers for Real-Time PCR, RT-qPCR experiments. Features Primer3 algorithm and NCBI validation.">
+    <meta name="keywords" content="primer design, qPCR, PCR primers, PrimerBank, real-time PCR, RT-qPCR, primer3, NCBI primer blast, free primer design tool, molecular biology, gene expression, GAPDH primers, housekeeping gene primers">
+    <meta name="author" content="Dr. Ahmed bey Chaker, King's College London">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://primersquest.streamlit.app">
+    <meta http-equiv="content-language" content="en">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- Open Graph Tags -->
+    <meta property="og:title" content="PrimersQuest Pro - Advanced qPCR Primer Design Tool">
+    <meta property="og:description" content="Design high-quality primers for qPCR with our free tool. Features PrimerBank search, Primer3 algorithm, and NCBI validation.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://primersquest.streamlit.app">
+    <meta property="og:image" content="https://primersquest.streamlit.app/preview.png">
+    
+    <!-- Twitter Card Tags -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="PrimersQuest Pro - qPCR Primer Design">
+    <meta name="twitter:description" content="Free online tool for designing and validating qPCR primers">
+    <meta name="twitter:image" content="https://primersquest.streamlit.app/preview.png">
+    
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "PrimersQuest Pro",
+        "description": "Advanced qPCR primer design tool with PrimerBank integration for molecular biology research",
+        "url": "https://primersquest.streamlit.app",
+        "applicationCategory": "UtilityApplication",
+        "operatingSystem": "All",
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+        },
+        "author": {
+            "@type": "Person",
+            "name": "Dr. Ahmed bey Chaker",
+            "affiliation": {
+                "@type": "Organization",
+                "name": "King's College London"
+            }
+        },
+        "keywords": "primer design, qPCR, PCR, PrimerBank, molecular biology",
+        "datePublished": "2024-01-01",
+        "dateModified": "2024-12-20"
+    }
+    </script>
+</head>
+""", unsafe_allow_html=True)
 
 # Enhanced CSS for modern design
 st.markdown("""
@@ -981,17 +1082,39 @@ def display_detailed_primerbank_card(primer_set: Dict, index: int, species: str)
         bcol1, bcol2, bcol3 = st.columns(3)
         with bcol1:
             blast_url = create_primer_blast_url(forward_seq, reverse_seq, species)
-            st.link_button("🎯 Validate with Primer-BLAST", blast_url)
+            if st.button(f"🎯 Validate with Primer-BLAST", key=f"blast_{index}"):
+                st.markdown(f"""
+                <script>
+                    trackEvent('External_Links', 'primer_blast_click', 'primerbank_set_{index}');
+                    window.open('{blast_url}', '_blank');
+                </script>
+                """, unsafe_allow_html=True)
 
         with bcol2:
             sequences_text = f"Forward: {forward_seq}\nReverse: {reverse_seq}"
             if probe_seq:
                 sequences_text += f"\nProbe: {probe_seq}"
-            st.download_button(f"📋 Download Sequences", data=sequences_text, file_name=f"primer_set_{index}.txt", key=f"copy_{index}")
+            st.download_button(
+                f"📋 Download Sequences", 
+                data=sequences_text, 
+                file_name=f"primer_set_{index}.txt", 
+                key=f"copy_{index}",
+                on_click=lambda: st.markdown(f"""
+                <script>
+                    trackEvent('Export', 'download_single_set', 'primerbank_set_{index}');
+                </script>
+                """, unsafe_allow_html=True)
+            )
         
         with bcol3:
             primerbank_url = f"https://pga.mgh.harvard.edu/primerbank/index.html"
-            st.link_button("🔗 View on PrimerBank", primerbank_url)
+            if st.button("🔗 View on PrimerBank", key=f"pb_{index}"):
+                st.markdown(f"""
+                <script>
+                    trackEvent('External_Links', 'primerbank_site_click', 'from_set_{index}');
+                    window.open('{primerbank_url}', '_blank');
+                </script>
+                """, unsafe_allow_html=True)
 
 
 def display_primerbank_comparison(primer_sets: List[Dict]):
@@ -1147,7 +1270,12 @@ def export_primerbank_data(primer_sets: List[Dict]):
             label="📥 Download CSV",
             data=csv_data,
             file_name=f"primerbank_{primer_sets[0].get('gene_symbol', 'results')}.csv",
-            mime="text/csv"
+            mime="text/csv",
+            on_click=lambda: st.markdown("""
+            <script>
+                trackEvent('Export', 'download_csv', 'primerbank_all_sets');
+            </script>
+            """, unsafe_allow_html=True)
         )
     
     # JSON export
@@ -1157,7 +1285,12 @@ def export_primerbank_data(primer_sets: List[Dict]):
             label="📥 Download JSON",
             data=json_data,
             file_name=f"primerbank_{primer_sets[0].get('gene_symbol', 'results')}.json",
-            mime="application/json"
+            mime="application/json",
+            on_click=lambda: st.markdown("""
+            <script>
+                trackEvent('Export', 'download_json', 'primerbank_all_sets');
+            </script>
+            """, unsafe_allow_html=True)
         )
     
     # Lab format (simplified)
@@ -1176,7 +1309,12 @@ def export_primerbank_data(primer_sets: List[Dict]):
             label="📥 Download Lab Format",
             data=lab_text,
             file_name=f"primerbank_{primer_sets[0].get('gene_symbol', 'primers')}.txt",
-            mime="text/plain"
+            mime="text/plain",
+            on_click=lambda: st.markdown("""
+            <script>
+                trackEvent('Export', 'download_lab_format', 'primerbank_all_sets');
+            </script>
+            """, unsafe_allow_html=True)
         )
 
 
@@ -1297,7 +1435,13 @@ def display_enhanced_primer_card(primer: PrimerPair, index: int, species: str):
         # --- BLAST Button ---
         st.divider()
         blast_url = create_primer_blast_url(primer.forward_seq, primer.reverse_seq, species)
-        st.link_button("🎯 Validate with NCBI Primer-BLAST", blast_url, use_container_width=True)
+        if st.button(f"🎯 Validate with NCBI Primer-BLAST", key=f"blast_custom_{index}", use_container_width=True):
+            st.markdown(f"""
+            <script>
+                trackEvent('External_Links', 'primer_blast_click', 'custom_pair_{index + 1}');
+                window.open('{blast_url}', '_blank');
+            </script>
+            """, unsafe_allow_html=True)
 
 
 def create_analysis_dashboard(primers: List[PrimerPair]) -> None:
@@ -1408,6 +1552,19 @@ def create_primer_blast_url(forward_seq: str, reverse_seq: str, species: str) ->
     return f"{base_url}?" + urllib.parse.urlencode(params)
 
 def main():
+    # Track page load
+    st.markdown("""
+    <script>
+        // Track page load event
+        if (typeof gtag !== 'undefined') {
+            gtag('event', 'page_view', {
+                'page_title': 'PrimersQuest Pro',
+                'page_location': window.location.href
+            });
+        }
+    </script>
+    """, unsafe_allow_html=True)
+    
     # Check for required dependencies
     try:
         import primer3
@@ -1478,7 +1635,7 @@ def main():
         # --- Custom Donate Button ---
         st.markdown("### 🙏 Support This App")
         button_html = """
-        <a href="https://www.buymeacoffee.com/primerquest" target="_blank" class="custom-donate-button">
+        <a href="https://www.buymeacoffee.com/primerquest" target="_blank" class="custom-donate-button" onclick="trackEvent('External_Links', 'donate_click', 'buy_me_coffee');">
             Buy Me a Coffee ☕
         </a>
         """
@@ -1533,6 +1690,13 @@ ATGGCAGAAATCGGTGTCAACGGATTTGGC...""",
                 st.info("Paste sequence to see stats")
         
         if st.button("🚀 Design Primers", type="primary", use_container_width=True):
+            # Add tracking
+            st.markdown("""
+            <script>
+                trackEvent('Primer_Design', 'design_button_click', 'custom_design');
+            </script>
+            """, unsafe_allow_html=True)
+            
             if sequence_input.strip():
                 with st.spinner("🧬 Analyzing sequence and designing optimal primers..."):
                     # Parse sequence
@@ -1540,6 +1704,11 @@ ATGGCAGAAATCGGTGTCAACGGATTTGGC...""",
                     
                     if error:
                         st.error(f"❌ {error}")
+                        st.markdown("""
+                        <script>
+                            trackEvent('Primer_Design', 'design_error', 'parse_error');
+                        </script>
+                        """, unsafe_allow_html=True)
                     else:
                         # Design primers
                         primers, error = designer.design_primers_enhanced(
@@ -1549,8 +1718,18 @@ ATGGCAGAAATCGGTGTCAACGGATTTGGC...""",
                         
                         if error:
                             st.error(f"❌ {error}")
+                            st.markdown("""
+                            <script>
+                                trackEvent('Primer_Design', 'design_error', 'no_primers_found');
+                            </script>
+                            """, unsafe_allow_html=True)
                         else:
                             st.success(f"✅ Successfully designed {len(primers)} primer pairs!")
+                            st.markdown(f"""
+                            <script>
+                                trackEvent('Primer_Design', 'design_success', 'primers_generated', {len(primers)});
+                            </script>
+                            """, unsafe_allow_html=True)
                             
                             # Store in session state
                             st.session_state['designed_primers'] = primers
@@ -1600,27 +1779,56 @@ ATGGCAGAAATCGGTGTCAACGGATTTGGC...""",
             )
         
         if st.button("🔍 Search PrimerBank", type="primary", use_container_width=True):
+            # Add tracking
+            st.markdown(f"""
+            <script>
+                trackEvent('PrimerBank', 'search_button_click', '{gene_symbol}');
+            </script>
+            """, unsafe_allow_html=True)
+            
             if gene_symbol.strip():
                 with st.spinner(f"🔎 Searching PrimerBank for {gene_symbol} ({species})..."):
                     results, error = searcher.search_primerbank(gene_symbol.strip(), species)
                     
                     if error:
                         st.error(f"❌ {error}")
+                        st.markdown(f"""
+                        <script>
+                            trackEvent('PrimerBank', 'search_error', '{gene_symbol}');
+                        </script>
+                        """, unsafe_allow_html=True)
                         
                         # Provide helpful alternatives
                         col1, col2 = st.columns(2)
                         with col1:
                             # Direct link to PrimerBank
                             primerbank_url = f"https://pga.mgh.harvard.edu/cgi-bin/primerbank/new_search2.cgi?searchBox={gene_symbol}&selectBox=NCBI+Gene+Symbol&species={species}&Submit=Submit"
-                            st.link_button("🔗 Try Manual Search on PrimerBank", primerbank_url)
+                            if st.button("🔗 Try Manual Search on PrimerBank", key="manual_pb"):
+                                st.markdown(f"""
+                                <script>
+                                    trackEvent('External_Links', 'manual_primerbank_search', '{gene_symbol}');
+                                    window.open('{primerbank_url}', '_blank');
+                                </script>
+                                """, unsafe_allow_html=True)
                         
                         with col2:
                             # Alternative gene search
                             ncbi_url = f"https://www.ncbi.nlm.nih.gov/gene/?term={gene_symbol}"
-                            st.link_button("🔍 Verify Gene Symbol on NCBI", ncbi_url)
+                            if st.button("🔍 Verify Gene Symbol on NCBI", key="verify_ncbi"):
+                                st.markdown(f"""
+                                <script>
+                                    trackEvent('External_Links', 'ncbi_gene_verify', '{gene_symbol}');
+                                    window.open('{ncbi_url}', '_blank');
+                                </script>
+                                """, unsafe_allow_html=True)
                             
                     elif results:
                         st.success(f"✅ Found {len(results)} validated primer sets!")
+                        st.markdown(f"""
+                        <script>
+                            trackEvent('PrimerBank', 'search_success', '{gene_symbol}', {len(results)});
+                        </script>
+                        """, unsafe_allow_html=True)
                         
                         # Store in session state
                         st.session_state['primerbank_results'] = results
@@ -1664,7 +1872,12 @@ ATGGCAGAAATCGGTGTCAACGGATTTGGC...""",
                     label="📥 Download as CSV",
                     data=csv,
                     file_name="primer_design_results.csv",
-                    mime="text/csv"
+                    mime="text/csv",
+                    on_click=lambda: st.markdown("""
+                    <script>
+                        trackEvent('Export', 'download_csv', 'analysis_dashboard');
+                    </script>
+                    """, unsafe_allow_html=True)
                 )
             
             with col2:
@@ -1673,7 +1886,12 @@ ATGGCAGAAATCGGTGTCAACGGATTTGGC...""",
                     label="📥 Download as JSON",
                     data=json_data,
                     file_name="primer_design_results.json",
-                    mime="application/json"
+                    mime="application/json",
+                    on_click=lambda: st.markdown("""
+                    <script>
+                        trackEvent('Export', 'download_json', 'analysis_dashboard');
+                    </script>
+                    """, unsafe_allow_html=True)
                 )
         else:
             st.info("🔬 No primer data available. Design primers or search PrimerBank first!")
@@ -1710,17 +1928,36 @@ ATGGCAGAAATCGGTGTCAACGGATTTGGC...""",
         - **Always Validate:** Use the "Validate with Primer-BLAST" button to check the specificity of your primers against the target genome.
         - **Check for SNPs:** Be aware of single nucleotide polymorphisms (SNPs) that may fall within your primer binding sites, as they can affect amplification efficiency.
         - **Use High-Quality Sequences:** The quality of your input sequence directly impacts the quality of the primer design.
+        
+        ### 📊 Citing PrimersQuest Pro
+        If you use PrimersQuest Pro in your research, please cite:
+        
+        > Chaker, A.B. (2024). PrimersQuest Pro: An advanced qPCR primer design tool. Available at: https://primersquest.streamlit.app
+        
+        ### 🔗 Related Resources
+        - **Primer3** - The underlying algorithm: [primer3.org](http://primer3.org/)
+        - **PrimerBank** - Harvard Medical School's validated primer database
+        - **NCBI Primer-BLAST** - For primer specificity checking
+        
+        ### 📧 Contact & Support
+        - **Developer:** Dr. Ahmed bey Chaker
+        - **Institution:** King's College London
+        - **LinkedIn:** [Connect on LinkedIn](https://www.linkedin.com/in/ahmed-bey-chaker-6b3908192/)
+        - **Support:** [Buy Me a Coffee](https://www.buymeacoffee.com/primerquest)
         """)
     
-    # Footer
+    # Footer with Schema Markup
     st.markdown("---")
     st.markdown("""
-    <div style='text-align: center; color: #718096; padding: 2rem;'>
+    <div style='text-align: center; color: #718096; padding: 2rem;' itemscope itemtype="https://schema.org/WebApplication">
         <p style="font-size: 0.875rem;">
-        PrimersQuest Pro | An advanced tool for the scientific community<br>
-        Powered by Primer3 | Integrated with NCBI & Harvard PrimerBank<br>
-        Made with ❤️ by <a href="https://www.linkedin.com/in/ahmed-bey-chaker-6b3908192/" target="_blank" style="color: #718096; text-decoration: underline;">Dr. Ahmed bey Chaker</a>
+            <span itemprop="name">PrimersQuest Pro</span> | <span itemprop="description">An advanced tool for the scientific community</span><br>
+            Powered by Primer3 | Integrated with NCBI & Harvard PrimerBank<br>
+            Made with ❤️ by <a href="https://www.linkedin.com/in/ahmed-bey-chaker-6b3908192/" target="_blank" style="color: #718096; text-decoration: underline;" itemprop="author" onclick="trackEvent('External_Links', 'footer_linkedin_click', 'footer');">Dr. Ahmed bey Chaker</a>
         </p>
+        <meta itemprop="applicationCategory" content="UtilityApplication">
+        <meta itemprop="operatingSystem" content="All">
+        <link itemprop="url" href="https://primersquest.streamlit.app">
     </div>
     """, unsafe_allow_html=True)
 

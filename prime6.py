@@ -96,40 +96,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-# --- SEO & GOOGLE ANALYTICS ---
 
-# Define the SEO metadata
-seo_description = """
-PrimersQuest Pro is an advanced, free-to-use web tool for designing and validating qPCR primers. 
-It integrates custom primer design using Primer3 with a validated primer search from Harvard's PrimerBank database. 
-Ideal for researchers in molecular biology and bioinformatics.
-"""
-
-seo_keywords = "qPCR, primer design, real-time PCR, bioinformatics, Primer3, PrimerBank, molecular biology, computational biology, Streamlit, Python"
-
-# Define the Google Analytics placeholder
-GA_ID = "G-NGW0S1841L" 
-
-# Corrected HTML for injection (without the <head> tags)
-HTML_TO_INJECT = f"""
-    <meta name="description" content="{seo_description}">
-    <meta name="keywords" content="{seo_keywords}">
-    <meta name="author" content="Dr. Ahmed bey Chaker">
-    
-    <script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){{dataLayer.push(arguments);}}
-      gtag('js', new Date());
-
-      gtag('config', '{GA_ID}');
-    </script>
-"""
-
-# Inject the HTML into the Streamlit app
-st.markdown(HTML_TO_INJECT, unsafe_allow_html=True)
-
-# --- END OF SEO & ANALYTICS BLOCK ---
 # Enhanced CSS for modern design
 st.markdown("""
 <style>

@@ -1932,7 +1932,7 @@ ATGGCAGAAATCGGTGTCAACGGATTTGGC...""",
         ### 📊 Citing PrimersQuest Pro
         If you use PrimersQuest Pro in your research, please cite:
         
-        > Chaker, A.B. (2024). PrimersQuest Pro: An advanced qPCR primer design tool. Available at: https://primersquest.streamlit.app
+        > Chaker, A.B. (2024). PrimersQuest Pro: An advanced qPCR primer design tool. Available at: https://www.primersquest.com/
         
         ### 🔗 Related Resources
         - **Primer3** - The underlying algorithm: [primer3.org](http://primer3.org/)

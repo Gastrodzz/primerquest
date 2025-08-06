@@ -1,7 +1,16 @@
 """
-PrimersQuest Pro v3.0
-Enhanced with modern UI, dimer analysis, and targeted position features
+PrimersQuest Pro v2.1
+An advanced tool for qPCR primer design, created to support the scientific community.
+
+Key Features:
+- Robust primer design with fallback strategies
+- Enhanced PrimerBank search with comprehensive multi-primer parsing
+- Modern UI with interactive visualizations
+- Export functionality (CSV/JSON/Lab format)
+- Works with or without BioPython
+
 Author: Dr. Ahmed bey Chaker, King's College London
+License: MIT
 """
 
 import streamlit as st
@@ -17,271 +26,275 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
-from typing import Dict, List, Tuple, Optional, Set
+from typing import Dict, List, Tuple, Optional
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from io import StringIO
-import hashlib
-from collections import defaultdict
 
-# Configure page
+# Safe Biopython imports with fallbacks
+try:
+    from Bio.Seq import Seq
+except ImportError:
+    class Seq:
+        def __init__(self, data):
+            self.data = str(data)
+        def __str__(self):
+            return self.data
+        def upper(self):
+            return Seq(self.data.upper())
+
+try:
+    from Bio import SeqIO
+except ImportError:
+    SeqIO = None
+
+# GC content calculation
+def GC(sequence):
+    """Calculate GC content of a sequence"""
+    if not sequence:
+        return 0.0
+    sequence = str(sequence).upper()
+    gc_count = sequence.count('G') + sequence.count('C')
+    total = len(sequence)
+    return (gc_count / total * 100) if total > 0 else 0.0
+
+# Molecular weight calculation
+def molecular_weight(sequence):
+    """Calculate approximate molecular weight of DNA sequence"""
+    if not sequence:
+        return 0.0
+    # Average molecular weight per nucleotide pair in dsDNA
+    return len(str(sequence)) * 650
+
+# Melting temperature calculation
+def Tm_NN(sequence, dnac=50, saltc=50):
+    """Calculate melting temperature using nearest neighbor method"""
+    sequence = str(sequence).upper()
+    if not sequence:
+        return 0.0
+    
+    # Simple Tm calculation for DNA
+    # Using Wallace rule for short primers (<14 bp)
+    if len(sequence) < 14:
+        return 2 * (sequence.count('A') + sequence.count('T')) + 4 * (sequence.count('G') + sequence.count('C'))
+    
+    # Using GC content method for longer sequences
+    gc_content = (sequence.count('G') + sequence.count('C')) / len(sequence)
+    
+    # Basic formula: Tm = 81.5 + 0.41(%GC) - 675/length + salt correction
+    basic_tm = 81.5 + (0.41 * gc_content * 100) - (675 / len(sequence))
+    
+    # Salt correction (simplified)
+    salt_correction = 12.5 * np.log10(saltc / 1000)
+    
+    return basic_tm + salt_correction
+
+# Page configuration with SEO
 st.set_page_config(
-    page_title="PrimersQuest Pro v3.0 - Advanced qPCR Primer Design",
+    page_title="PrimersQuest Pro - Free qPCR Primer Design Tool | PrimerBank Search",
     page_icon="🧬",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'About': "PrimersQuest Pro - Advanced qPCR primer design tool by Dr. Ahmed bey Chaker"
+    }
 )
 
-# Enhanced CSS for modern social media-like design
+# SEO Meta Tags and Google Analytics
+st.markdown("""
+<head>
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-NGW0S1841L"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-NGW0S1841L');
+        
+        // Custom event tracking function
+        function trackEvent(category, action, label, value) {
+            if (typeof gtag !== 'undefined') {
+                gtag('event', action, {
+                    'event_category': category,
+                    'event_label': label,
+                    'value': value
+                });
+            }
+        }
+        
+        // Track page sections
+        document.addEventListener('DOMContentLoaded', function() {
+            // Track tab views
+            const observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    if (mutation.type === 'attributes' && mutation.attributeName === 'aria-selected') {
+                        const tab = mutation.target;
+                        if (tab.getAttribute('aria-selected') === 'true') {
+                            trackEvent('Navigation', 'tab_view', tab.textContent);
+                        }
+                    }
+                });
+            });
+            
+            // Observe all tabs
+            setTimeout(function() {
+                document.querySelectorAll('[role="tab"]').forEach(tab => {
+                    observer.observe(tab, { attributes: true });
+                });
+            }, 1000);
+            
+            // Track all external links
+            document.addEventListener('click', function(e) {
+                const link = e.target.closest('a');
+                if (link && link.href) {
+                    if (link.href.includes('primer-blast')) {
+                        trackEvent('External_Links', 'primer_blast_click', 'ncbi');
+                    } else if (link.href.includes('primerbank')) {
+                        trackEvent('External_Links', 'primerbank_click', 'harvard');
+                    } else if (link.href.includes('buymeacoffee')) {
+                        trackEvent('External_Links', 'donate_click', 'coffee');
+                    }
+                }
+            });
+            
+            // Track download buttons
+            document.addEventListener('click', function(e) {
+                const button = e.target.closest('button');
+                if (button && button.textContent) {
+                    if (button.textContent.includes('Download')) {
+                        const fileType = button.textContent.includes('CSV') ? 'csv' : 
+                                       button.textContent.includes('JSON') ? 'json' : 'txt';
+                        trackEvent('Export', 'download_' + fileType, 'file');
+                    }
+                }
+            });
+        });
+    </script>
+    
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="PrimersQuest Pro - Free online qPCR primer design tool with PrimerBank integration. Design and validate primers for Real-Time PCR, RT-qPCR experiments. Features Primer3 algorithm and NCBI validation.">
+    <meta name="keywords" content="primer design, qPCR, PCR primers, PrimerBank, real-time PCR, RT-qPCR, primer3, NCBI primer blast, free primer design tool, molecular biology, gene expression, GAPDH primers, housekeeping gene primers">
+    <meta name="author" content="Dr. Ahmed bey Chaker, King's College London">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://primersquest.streamlit.app">
+    <meta http-equiv="content-language" content="en">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- Open Graph Tags -->
+    <meta property="og:title" content="PrimersQuest Pro - Advanced qPCR Primer Design Tool">
+    <meta property="og:description" content="Design high-quality primers for qPCR with our free tool. Features PrimerBank search, Primer3 algorithm, and NCBI validation.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://primersquest.streamlit.app">
+    <meta property="og:image" content="https://primersquest.streamlit.app/preview.png">
+    
+    <!-- Twitter Card Tags -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="PrimersQuest Pro - qPCR Primer Design">
+    <meta name="twitter:description" content="Free online tool for designing and validating qPCR primers">
+    <meta name="twitter:image" content="https://primersquest.streamlit.app/preview.png">
+    
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "PrimersQuest Pro",
+        "description": "Advanced qPCR primer design tool with PrimerBank integration for molecular biology research",
+        "url": "https://primersquest.streamlit.app",
+        "applicationCategory": "UtilityApplication",
+        "operatingSystem": "All",
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+        },
+        "author": {
+            "@type": "Person",
+            "name": "Dr. Ahmed bey Chaker",
+            "affiliation": {
+                "@type": "Organization",
+                "name": "King's College London"
+            }
+        },
+        "keywords": "primer design, qPCR, PCR, PrimerBank, molecular biology",
+        "datePublished": "2024-01-01",
+        "dateModified": "2024-12-20"
+    }
+    </script>
+</head>
+""", unsafe_allow_html=True)
+
+# Enhanced CSS for modern design
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
-    /* Main Theme */
     .main {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+        font-family: 'Inter', sans-serif;
     }
     
-    /* Header Styles */
     .main-header {
         font-size: 3.5rem;
-        font-weight: 800;
+        font-weight: 700;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         text-align: center;
-        margin-bottom: 1rem;
-        letter-spacing: -0.03em;
+        margin-bottom: 2rem;
+        letter-spacing: -0.02em;
     }
     
-    .version-badge {
-        display: inline-block;
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        color: white;
-        padding: 0.25rem 0.75rem;
-        border-radius: 20px;
-        font-size: 0.85rem;
+    .sub-header {
+        font-size: 1.8rem;
         font-weight: 600;
-        margin-left: 1rem;
+        color: #4a5568;
+        margin-bottom: 1.5rem;
     }
     
-    /* Modern Card Design */
-    .primer-card {
-        background: white;
-        border-radius: 16px;
-        padding: 1.5rem;
-        margin-bottom: 1rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.12);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        border: 1px solid rgba(0,0,0,0.06);
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2rem;
+        background-color: transparent;
     }
     
-    .primer-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 12px 24px rgba(0,0,0,0.1), 0 4px 8px rgba(0,0,0,0.08);
-        border-color: #667eea;
-    }
-    
-    /* Thread-like Container */
-    .thread-container {
-        position: relative;
-        padding-left: 2rem;
-    }
-    
-    .thread-container::before {
-        content: '';
-        position: absolute;
-        left: 0.75rem;
-        top: 2rem;
-        bottom: 0;
-        width: 2px;
-        background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
-        opacity: 0.3;
-    }
-    
-    .thread-node {
-        position: absolute;
-        left: 0.25rem;
-        width: 1rem;
-        height: 1rem;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 50%;
-        border: 3px solid white;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    
-    /* Status Badges */
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        padding: 0.375rem 0.75rem;
-        border-radius: 20px;
-        font-size: 0.875rem;
+    .stTabs [data-baseweb="tab"] {
+        padding: 1rem 2rem;
         font-weight: 600;
-        letter-spacing: 0.025em;
+        background-color: transparent;
     }
     
-    .status-excellent {
-        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    .stTabs [aria-selected="true"] {
+        background-color: #667eea;
         color: white;
-    }
-    
-    .status-good {
-        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-        color: white;
-    }
-    
-    .status-warning {
-        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-        color: white;
-    }
-    
-    /* Sequence Display */
-    .sequence-display {
-        font-family: 'SF Mono', 'Monaco', 'Courier New', monospace;
-        background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
-        padding: 1rem;
-        border-radius: 8px;
-        font-size: 0.95rem;
-        letter-spacing: 0.05em;
-        word-break: break-all;
-        border: 1px solid #d1d5db;
-    }
-    
-    /* Dimer Analysis Styles */
-    .dimer-warning {
-        background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-        border-left: 4px solid #f59e0b;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 0.5rem 0;
-    }
-    
-    .dimer-critical {
-        background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
-        border-left: 4px solid #ef4444;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 0.5rem 0;
-    }
-    
-    /* Metrics Grid */
-    .metrics-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-        gap: 1rem;
-        margin: 1rem 0;
-    }
-    
-    .metric-item {
-        background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
-        padding: 0.75rem;
-        border-radius: 8px;
-        text-align: center;
-        border: 1px solid #e5e7eb;
-    }
-    
-    .metric-label {
-        font-size: 0.75rem;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        margin-bottom: 0.25rem;
-    }
-    
-    .metric-value {
-        font-size: 1.25rem;
-        font-weight: 700;
-        color: #111827;
-    }
-    
-    /* Interactive Elements */
-    .expand-button {
-        background: transparent;
-        border: none;
-        color: #667eea;
-        font-weight: 600;
-        cursor: pointer;
-        padding: 0.5rem;
-        border-radius: 8px;
-        transition: all 0.2s;
-    }
-    
-    .expand-button:hover {
-        background: rgba(102, 126, 234, 0.1);
-    }
-    
-    /* Tab Pills */
-    .tab-pills {
-        display: flex;
-        gap: 0.5rem;
-        padding: 0.25rem;
-        background: #f3f4f6;
         border-radius: 12px;
-        margin-bottom: 1rem;
     }
-    
-    .tab-pill {
-        padding: 0.5rem 1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        transition: all 0.2s;
-        cursor: pointer;
+
+    /* Custom Donate Button Style */
+    .custom-donate-button {
+        background: linear-gradient(135deg, #FFDD00 0%, #FBB034 100%);
+        color: #000000 !important;
+        padding: 0.85rem 1.5rem;
+        border-radius: 12px;
+        font-weight: 700;
+        font-size: 1.1rem;
+        text-align: center;
+        text-decoration: none !important;
+        display: block;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px -1px rgba(251, 176, 52, 0.4);
+        border: none;
     }
-    
-    .tab-pill.active {
-        background: white;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    
-    /* Animation */
-    @keyframes slideIn {
-        from {
-            opacity: 0;
-            transform: translateY(10px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-    
-    .animate-in {
-        animation: slideIn 0.3s ease-out;
+
+    .custom-donate-button:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 20px -3px rgba(251, 176, 52, 0.6);
+        color: #000000 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# BioPython fallbacks
-try:
-    from Bio.Seq import Seq
-    from Bio import SeqIO
-except ImportError:
-    class Seq:
-        def __init__(self, data):
-            self.data = str(data).upper()
-        def __str__(self):
-            return self.data
-        def reverse_complement(self):
-            complement = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G', 'N': 'N'}
-            return Seq(''.join(complement.get(base, 'N') for base in self.data[::-1]))
-    SeqIO = None
-
-@dataclass
-class DimerAnalysis:
-    """Results from dimer analysis"""
-    dimer_type: str  # 'self', 'hetero'
-    score: float
-    alignment: str
-    delta_g: float
-    tm: float
-    position: Tuple[int, int]
-    severity: str  # 'low', 'medium', 'high', 'critical'
-
 @dataclass
 class PrimerPair:
-    """Enhanced primer pair with dimer analysis"""
+    """Data class for storing primer pair information"""
     forward_seq: str
     reverse_seq: str
     forward_tm: float
@@ -293,859 +306,8 @@ class PrimerPair:
     reverse_position: int
     penalty: float
     confidence: int
-    target_position: Optional[Tuple[int, int]] = None
-    self_dimer_forward: Optional[DimerAnalysis] = None
-    self_dimer_reverse: Optional[DimerAnalysis] = None
-    hetero_dimer: Optional[DimerAnalysis] = None
-    hairpin_forward: Optional[Dict] = None
-    hairpin_reverse: Optional[Dict] = None
-    additional_info: Dict = field(default_factory=dict)
+    additional_info: Dict = None
 
-class DimerAnalyzer:
-    """Advanced dimer and secondary structure analyzer"""
-    
-    def __init__(self):
-        self.complement = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G'}
-        self.dg_values = {
-            'AA': 1.2, 'TT': 1.2, 'AT': 0.9, 'TA': 0.9,
-            'CA': 1.7, 'TG': 1.7, 'GT': 1.5, 'AC': 1.5,
-            'CT': 1.3, 'AG': 1.3, 'GA': 1.3, 'TC': 1.3,
-            'CG': 2.8, 'GC': 2.3, 'GG': 2.1, 'CC': 2.1
-        }
-    
-    def analyze_primer_dimers(self, primer1: str, primer2: str = None) -> DimerAnalysis:
-        """Comprehensive dimer analysis between primers"""
-        if primer2 is None:
-            primer2 = primer1
-            dimer_type = 'self'
-        else:
-            dimer_type = 'hetero'
-        
-        # Reverse complement of primer2 for alignment
-        primer2_rc = self.reverse_complement(primer2)
-        
-        # Find best alignment
-        best_score = 0
-        best_alignment = None
-        best_position = (0, 0)
-        
-        for i in range(len(primer1)):
-            for j in range(len(primer2_rc)):
-                score, alignment = self.calculate_alignment_score(
-                    primer1[i:], primer2_rc[j:]
-                )
-                if score > best_score:
-                    best_score = score
-                    best_alignment = alignment
-                    best_position = (i, j)
-        
-        # Calculate thermodynamics
-        delta_g = self.calculate_delta_g(best_alignment)
-        tm = self.calculate_dimer_tm(best_alignment, delta_g)
-        
-        # Determine severity
-        severity = self.assess_dimer_severity(best_score, delta_g, best_position)
-        
-        return DimerAnalysis(
-            dimer_type=dimer_type,
-            score=best_score,
-            alignment=best_alignment,
-            delta_g=delta_g,
-            tm=tm,
-            position=best_position,
-            severity=severity
-        )
-    
-    def analyze_hairpin(self, sequence: str) -> Dict:
-        """Analyze potential hairpin structures"""
-        min_stem = 4
-        min_loop = 3
-        best_hairpin = {'score': 0, 'structure': None, 'tm': 0}
-        
-        for i in range(len(sequence) - min_stem * 2 - min_loop):
-            for j in range(i + min_stem + min_loop, len(sequence)):
-                stem_length = min(j - i - min_loop, len(sequence) - j)
-                
-                if stem_length >= min_stem:
-                    stem1 = sequence[i:i + stem_length]
-                    stem2 = sequence[j:j + stem_length]
-                    stem2_rc = self.reverse_complement(stem2)
-                    
-                    score = sum(1 for a, b in zip(stem1, stem2_rc) if a == b)
-                    
-                    if score > best_hairpin['score']:
-                        loop = sequence[i + stem_length:j]
-                        structure = f"{stem1}-{loop}-{stem2}"
-                        tm = self.calculate_hairpin_tm(stem1, stem2_rc)
-                        
-                        best_hairpin = {
-                            'score': score,
-                            'structure': structure,
-                            'stem_length': stem_length,
-                            'loop_length': len(loop),
-                            'position': (i, j),
-                            'tm': tm
-                        }
-        
-        return best_hairpin
-    
-    def reverse_complement(self, seq: str) -> str:
-        """Get reverse complement of sequence"""
-        return ''.join(self.complement.get(base, 'N') for base in seq[::-1])
-    
-    def calculate_alignment_score(self, seq1: str, seq2: str) -> Tuple[float, str]:
-        """Calculate alignment score for two sequences"""
-        min_len = min(len(seq1), len(seq2))
-        matches = 0
-        alignment = []
-        
-        for i in range(min_len):
-            if seq1[i] == seq2[i]:
-                matches += 1
-                alignment.append('|')
-            else:
-                alignment.append('.')
-        
-        score = matches / min_len if min_len > 0 else 0
-        alignment_str = f"{seq1[:min_len]}\n{''.join(alignment)}\n{seq2[:min_len]}"
-        
-        return score * 100, alignment_str
-    
-    def calculate_delta_g(self, alignment: str) -> float:
-        """Calculate ΔG for dimer formation"""
-        if not alignment:
-            return 0
-        
-        lines = alignment.split('\n')
-        if len(lines) < 3:
-            return 0
-        
-        seq1 = lines[0]
-        seq2 = lines[2]
-        
-        delta_g = 0
-        for i in range(len(seq1) - 1):
-            if i < len(seq2) - 1:
-                dinuc = seq1[i:i+2] + seq2[i:i+2]
-                if dinuc[:2] in self.dg_values:
-                    delta_g -= self.dg_values[dinuc[:2]]
-        
-        return delta_g
-    
-    def calculate_dimer_tm(self, alignment: str, delta_g: float) -> float:
-        """Calculate melting temperature of dimer"""
-        if delta_g >= 0:
-            return 0
-        
-        # Simplified Tm calculation for dimers
-        # Tm = ΔH / (ΔS + R*ln(C))
-        # Using approximation: Tm ≈ -ΔG * 1000 / (10.8)
-        tm = abs(delta_g) * 1000 / 10.8
-        
-        return min(tm, 85)  # Cap at 85°C
-    
-    def calculate_hairpin_tm(self, stem1: str, stem2: str) -> float:
-        """Calculate hairpin melting temperature"""
-        matches = sum(1 for a, b in zip(stem1, stem2) if a == b)
-        gc_count = sum(1 for a, b in zip(stem1, stem2) if a == b and a in 'GC')
-        
-        # Wallace rule approximation
-        tm = 4 * gc_count + 2 * (matches - gc_count)
-        
-        return tm
-    
-    def assess_dimer_severity(self, score: float, delta_g: float, position: Tuple[int, int]) -> str:
-        """Assess the severity of dimer formation"""
-        # Check 3' end involvement (most critical)
-        is_3_prime = position[0] > 15 or position[1] > 15
-        
-        if score > 80 and abs(delta_g) > 8 and is_3_prime:
-            return 'critical'
-        elif score > 60 and abs(delta_g) > 6:
-            return 'high'
-        elif score > 40 and abs(delta_g) > 4:
-            return 'medium'
-        else:
-            return 'low'
-
-class TargetedPrimerDesigner:
-    """Design primers for specific target regions"""
-    
-    def __init__(self):
-        self.designer = EnhancedPrimerDesigner()
-        self.analyzer = DimerAnalyzer()
-    
-    def design_for_region(self, sequence: str, target_start: int, target_end: int, 
-                          params: Dict = None) -> List[PrimerPair]:
-        """Design primers targeting a specific region"""
-        
-        # Adjust design parameters for targeted region
-        targeted_params = {
-            'SEQUENCE_TARGET': f"{target_start},{target_end - target_start}",
-            'PRIMER_PICK_LEFT_PRIMER': 1,
-            'PRIMER_PICK_RIGHT_PRIMER': 1,
-            'PRIMER_PRODUCT_SIZE_RANGE': [[50, target_end - target_start + 100]]
-        }
-        
-        if params:
-            targeted_params.update(params)
-        
-        # Design primers
-        primers = self.designer.design_primers_enhanced(
-            {'sequence': sequence, 'header': 'Targeted_Region'},
-            targeted_params
-        )
-        
-        # Add target position info
-        if primers[0]:
-            for primer in primers[0]:
-                primer.target_position = (target_start, target_end)
-                
-                # Perform dimer analysis
-                primer.self_dimer_forward = self.analyzer.analyze_primer_dimers(primer.forward_seq)
-                primer.self_dimer_reverse = self.analyzer.analyze_primer_dimers(primer.reverse_seq)
-                primer.hetero_dimer = self.analyzer.analyze_primer_dimers(
-                    primer.forward_seq, primer.reverse_seq
-                )
-                
-                # Hairpin analysis
-                primer.hairpin_forward = self.analyzer.analyze_hairpin(primer.forward_seq)
-                primer.hairpin_reverse = self.analyzer.analyze_hairpin(primer.reverse_seq)
-        
-        return primers[0] if primers[0] else []
-
-class ModernPrimerCard:
-    """Generate modern social media-style primer cards"""
-    
-    @staticmethod
-    def render_primer_thread(primers: List[PrimerPair], show_details: bool = False):
-        """Render primers as a social media thread"""
-        
-        for idx, primer in enumerate(primers[:10]):  # Show top 10
-            with st.container():
-                # Thread node
-                if idx > 0:
-                    st.markdown(f'<div class="thread-node" style="top: {idx * 12}rem;"></div>', 
-                               unsafe_allow_html=True)
-                
-                # Main card
-                st.markdown('<div class="primer-card animate-in">', unsafe_allow_html=True)
-                
-                # Card header
-                col1, col2, col3 = st.columns([2, 3, 2])
-                
-                with col1:
-                    st.markdown(f"### 🧬 Primer Set {idx + 1}")
-                    ModernPrimerCard._render_confidence_badge(primer.confidence)
-                
-                with col2:
-                    if primer.target_position:
-                        st.caption(f"📍 Target: {primer.target_position[0]}-{primer.target_position[1]} bp")
-                    st.caption(f"📏 Product: {primer.product_size} bp")
-                
-                with col3:
-                    # Quick metrics
-                    st.markdown('<div class="metrics-grid">', unsafe_allow_html=True)
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        st.metric("ΔTm", f"{abs(primer.forward_tm - primer.reverse_tm):.1f}°C", 
-                                 delta_color="inverse")
-                    with col_b:
-                        st.metric("Avg GC", f"{(primer.forward_gc + primer.reverse_gc)/2:.0f}%")
-                    st.markdown('</div>', unsafe_allow_html=True)
-                
-                # Expandable details
-                with st.expander("🔍 View Details", expanded=show_details):
-                    tabs = st.tabs(["📝 Sequences", "🔬 Dimer Analysis", "📊 Properties", "🧪 Validation"])
-                    
-                    with tabs[0]:
-                        ModernPrimerCard._render_sequences(primer)
-                    
-                    with tabs[1]:
-                        ModernPrimerCard._render_dimer_analysis(primer)
-                    
-                    with tabs[2]:
-                        ModernPrimerCard._render_properties(primer)
-                    
-                    with tabs[3]:
-                        ModernPrimerCard._render_validation_tools(primer, idx)
-                
-                st.markdown('</div>', unsafe_allow_html=True)
-                
-                if idx < len(primers) - 1:
-                    st.markdown("---")
-    
-    @staticmethod
-    def _render_confidence_badge(confidence: int):
-        """Render confidence score as a badge"""
-        if confidence >= 85:
-            badge_class = "status-excellent"
-            icon = "✅"
-            text = "EXCELLENT"
-        elif confidence >= 70:
-            badge_class = "status-good"
-            icon = "⚠️"
-            text = "GOOD"
-        else:
-            badge_class = "status-warning"
-            icon = "⚡"
-            text = "CHECK"
-        
-        st.markdown(
-            f'<span class="status-badge {badge_class}">{icon} {text} ({confidence}%)</span>',
-            unsafe_allow_html=True
-        )
-    
-    @staticmethod
-    def _render_sequences(primer: PrimerPair):
-        """Render primer sequences with visual enhancements"""
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Forward Primer (5' → 3')**")
-            st.markdown(f'<div class="sequence-display">{primer.forward_seq}</div>', 
-                       unsafe_allow_html=True)
-            
-            # Metrics
-            metrics_html = f"""
-            <div class="metrics-grid">
-                <div class="metric-item">
-                    <div class="metric-label">Length</div>
-                    <div class="metric-value">{len(primer.forward_seq)}</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-label">Tm</div>
-                    <div class="metric-value">{primer.forward_tm:.1f}°C</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-label">GC%</div>
-                    <div class="metric-value">{primer.forward_gc:.0f}%</div>
-                </div>
-            </div>
-            """
-            st.markdown(metrics_html, unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown("**Reverse Primer (5' → 3')**")
-            st.markdown(f'<div class="sequence-display">{primer.reverse_seq}</div>', 
-                       unsafe_allow_html=True)
-            
-            # Metrics
-            metrics_html = f"""
-            <div class="metrics-grid">
-                <div class="metric-item">
-                    <div class="metric-label">Length</div>
-                    <div class="metric-value">{len(primer.reverse_seq)}</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-label">Tm</div>
-                    <div class="metric-value">{primer.reverse_tm:.1f}°C</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-label">GC%</div>
-                    <div class="metric-value">{primer.reverse_gc:.0f}%</div>
-                </div>
-            </div>
-            """
-            st.markdown(metrics_html, unsafe_allow_html=True)
-    
-    @staticmethod
-    def _render_dimer_analysis(primer: PrimerPair):
-        """Render comprehensive dimer analysis"""
-        
-        # Self-dimers
-        st.markdown("#### Self-Dimer Analysis")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Forward Primer Self-Dimer**")
-            if primer.self_dimer_forward:
-                ModernPrimerCard._display_dimer_result(primer.self_dimer_forward)
-        
-        with col2:
-            st.markdown("**Reverse Primer Self-Dimer**")
-            if primer.self_dimer_reverse:
-                ModernPrimerCard._display_dimer_result(primer.self_dimer_reverse)
-        
-        # Heterodimer
-        st.markdown("#### Heterodimer Analysis")
-        if primer.hetero_dimer:
-            ModernPrimerCard._display_dimer_result(primer.hetero_dimer)
-        
-        # Hairpin structures
-        st.markdown("#### Hairpin Structure Analysis")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Forward Primer Hairpin**")
-            if primer.hairpin_forward and primer.hairpin_forward['score'] > 0:
-                st.info(f"Stem: {primer.hairpin_forward['stem_length']} bp | "
-                       f"Loop: {primer.hairpin_forward['loop_length']} bp | "
-                       f"Tm: {primer.hairpin_forward['tm']:.1f}°C")
-        
-        with col2:
-            st.markdown("**Reverse Primer Hairpin**")
-            if primer.hairpin_reverse and primer.hairpin_reverse['score'] > 0:
-                st.info(f"Stem: {primer.hairpin_reverse['stem_length']} bp | "
-                       f"Loop: {primer.hairpin_reverse['loop_length']} bp | "
-                       f"Tm: {primer.hairpin_reverse['tm']:.1f}°C")
-    
-    @staticmethod
-    def _display_dimer_result(dimer: DimerAnalysis):
-        """Display dimer analysis result"""
-        severity_colors = {
-            'low': 'info',
-            'medium': 'warning',
-            'high': 'warning',
-            'critical': 'error'
-        }
-        
-        severity_icons = {
-            'low': '✓',
-            'medium': '⚠️',
-            'high': '⚠️',
-            'critical': '⛔'
-        }
-        
-        # Create severity message
-        severity_msg = f"{severity_icons[dimer.severity]} {dimer.severity.upper()}"
-        
-        if dimer.severity in ['high', 'critical']:
-            st.error(f"{severity_msg} | Score: {dimer.score:.1f}% | ΔG: {dimer.delta_g:.1f} kcal/mol")
-        elif dimer.severity == 'medium':
-            st.warning(f"{severity_msg} | Score: {dimer.score:.1f}% | ΔG: {dimer.delta_g:.1f} kcal/mol")
-        else:
-            st.success(f"{severity_msg} | Score: {dimer.score:.1f}% | ΔG: {dimer.delta_g:.1f} kcal/mol")
-        
-        # Show alignment in code block
-        if dimer.alignment:
-            st.code(dimer.alignment, language=None)
-    
-    @staticmethod
-    def _render_properties(primer: PrimerPair):
-        """Render detailed primer properties"""
-        
-        # Create properties dataframe
-        properties = {
-            'Property': [
-                'Product Size',
-                'Forward Position',
-                'Reverse Position',
-                'Penalty Score',
-                'Tm Difference',
-                'GC Difference',
-                '3\' End Stability (F)',
-                '3\' End Stability (R)'
-            ],
-            'Value': [
-                f"{primer.product_size} bp",
-                f"{primer.forward_position}",
-                f"{primer.reverse_position}",
-                f"{primer.penalty:.2f}",
-                f"{abs(primer.forward_tm - primer.reverse_tm):.1f}°C",
-                f"{abs(primer.forward_gc - primer.reverse_gc):.1f}%",
-                primer.additional_info.get('left_end_stability', 'N/A'),
-                primer.additional_info.get('right_end_stability', 'N/A')
-            ]
-        }
-        
-        df = pd.DataFrame(properties)
-        st.dataframe(df, hide_index=True, use_container_width=True)
-    
-    @staticmethod
-    def _render_validation_tools(primer: PrimerPair, idx: int):
-        """Render validation and export tools"""
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            # BLAST validation
-            species = st.selectbox(
-                "Organism",
-                ["Homo sapiens", "Mus musculus"],
-                key=f"blast_species_{idx}"
-            )
-            
-            blast_url = ModernPrimerCard._create_blast_url(
-                primer.forward_seq, primer.reverse_seq, species
-            )
-            st.link_button("🎯 Validate with BLAST", blast_url, use_container_width=True)
-        
-        with col2:
-            # Copy sequences
-            sequences = f"Forward: {primer.forward_seq}\nReverse: {primer.reverse_seq}"
-            st.download_button(
-                "📋 Copy Sequences",
-                data=sequences,
-                file_name=f"primer_set_{idx + 1}.txt",
-                key=f"copy_{idx}",
-                use_container_width=True
-            )
-        
-        with col3:
-            # Export JSON
-            primer_data = {
-                'forward_seq': primer.forward_seq,
-                'reverse_seq': primer.reverse_seq,
-                'forward_tm': primer.forward_tm,
-                'reverse_tm': primer.reverse_tm,
-                'forward_gc': primer.forward_gc,
-                'reverse_gc': primer.reverse_gc,
-                'product_size': primer.product_size,
-                'confidence': primer.confidence
-            }
-            
-            st.download_button(
-                "💾 Export JSON",
-                data=json.dumps(primer_data, indent=2),
-                file_name=f"primer_{idx + 1}.json",
-                key=f"export_{idx}",
-                use_container_width=True
-            )
-    
-    @staticmethod
-    def _create_blast_url(forward_seq: str, reverse_seq: str, organism: str) -> str:
-        """Create NCBI Primer-BLAST URL"""
-        base_url = "https://www.ncbi.nlm.nih.gov/tools/primer-blast/index.cgi"
-        params = {
-            'PRIMER_LEFT_INPUT': forward_seq,
-            'PRIMER_RIGHT_INPUT': reverse_seq,
-            'PRIMER_PRODUCT_MIN': 70,
-            'PRIMER_PRODUCT_MAX': 500,
-            'ORGANISM': organism,
-            'PRIMER_SPECIFICITY_DATABASE': 'refseq_rna'
-        }
-        return f"{base_url}?" + urllib.parse.urlencode(params)
-
-class EnhancedAnalysisDashboard:
-    """Create beautiful analysis dashboards"""
-    
-    @staticmethod
-    def render_comprehensive_analysis(primers: List[PrimerPair]):
-        """Render comprehensive analysis with modern visualizations"""
-        
-        st.markdown("### 📊 Comprehensive Primer Analysis")
-        
-        # Summary metrics
-        col1, col2, col3, col4 = st.columns(4)
-        
-        excellent_count = sum(1 for p in primers if p.confidence >= 85)
-        avg_confidence = np.mean([p.confidence for p in primers])
-        avg_tm_diff = np.mean([abs(p.forward_tm - p.reverse_tm) for p in primers])
-        dimer_issues = sum(1 for p in primers 
-                          if p.hetero_dimer and p.hetero_dimer.severity in ['high', 'critical'])
-        
-        with col1:
-            st.metric("Excellent Primers", f"{excellent_count}/{len(primers)}", 
-                     f"{excellent_count/len(primers)*100:.0f}%")
-        
-        with col2:
-            st.metric("Avg Confidence", f"{avg_confidence:.1f}%",
-                     "Good" if avg_confidence >= 70 else "Needs Review")
-        
-        with col3:
-            st.metric("Avg ΔTm", f"{avg_tm_diff:.2f}°C",
-                     "Optimal" if avg_tm_diff <= 1 else "Check")
-        
-        with col4:
-            st.metric("Dimer Issues", dimer_issues,
-                     "Clear" if dimer_issues == 0 else f"-{dimer_issues}")
-        
-        # Visualizations
-        tabs = st.tabs(["📈 Overview", "🔬 Dimer Analysis", "🎯 Target Coverage", "📊 Distributions"])
-        
-        with tabs[0]:
-            EnhancedAnalysisDashboard._render_overview_charts(primers)
-        
-        with tabs[1]:
-            EnhancedAnalysisDashboard._render_dimer_heatmap(primers)
-        
-        with tabs[2]:
-            EnhancedAnalysisDashboard._render_target_coverage(primers)
-        
-        with tabs[3]:
-            EnhancedAnalysisDashboard._render_distributions(primers)
-    
-    @staticmethod
-    def _render_overview_charts(primers: List[PrimerPair]):
-        """Render overview charts"""
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Confidence radar chart
-            fig = go.Figure()
-            
-            categories = ['Confidence', 'Tm Match', 'GC Balance', 'Size Optimal', 'No Dimers']
-            
-            for i, primer in enumerate(primers[:5]):  # Top 5
-                values = [
-                    primer.confidence,
-                    100 - min(abs(primer.forward_tm - primer.reverse_tm) * 10, 100),
-                    100 - abs(50 - (primer.forward_gc + primer.reverse_gc) / 2) * 2,
-                    100 if 80 <= primer.product_size <= 150 else 50,
-                    100 if primer.hetero_dimer and primer.hetero_dimer.severity == 'low' else 50
-                ]
-                
-                fig.add_trace(go.Scatterpolar(
-                    r=values,
-                    theta=categories,
-                    fill='toself',
-                    name=f'Set {i+1}',
-                    opacity=0.6
-                ))
-            
-            fig.update_layout(
-                polar=dict(
-                    radialaxis=dict(
-                        visible=True,
-                        range=[0, 100]
-                    )),
-                showlegend=True,
-                title="Primer Quality Radar",
-                height=400
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            # Tm correlation scatter
-            fig = go.Figure()
-            
-            fig.add_trace(go.Scatter(
-                x=[p.forward_tm for p in primers],
-                y=[p.reverse_tm for p in primers],
-                mode='markers',
-                marker=dict(
-                    size=[p.confidence/5 for p in primers],
-                    color=[p.confidence for p in primers],
-                    colorscale='Viridis',
-                    showscale=True,
-                    colorbar=dict(title="Confidence")
-                ),
-                text=[f"Set {i+1}<br>Product: {p.product_size} bp" 
-                      for i, p in enumerate(primers)],
-                hovertemplate='%{text}<br>Forward Tm: %{x:.1f}°C<br>Reverse Tm: %{y:.1f}°C'
-            ))
-            
-            # Add ideal line
-            min_tm = min([p.forward_tm for p in primers] + [p.reverse_tm for p in primers])
-            max_tm = max([p.forward_tm for p in primers] + [p.reverse_tm for p in primers])
-            
-            fig.add_trace(go.Scatter(
-                x=[min_tm, max_tm],
-                y=[min_tm, max_tm],
-                mode='lines',
-                line=dict(dash='dash', color='red'),
-                name='Ideal Match',
-                showlegend=True
-            ))
-            
-            fig.update_layout(
-                title="Melting Temperature Correlation",
-                xaxis_title="Forward Tm (°C)",
-                yaxis_title="Reverse Tm (°C)",
-                height=400
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-    
-    @staticmethod
-    def _render_dimer_heatmap(primers: List[PrimerPair]):
-        """Render dimer analysis heatmap"""
-        
-        # Create dimer matrix
-        n = min(len(primers), 10)
-        dimer_matrix = np.zeros((n * 2, n * 2))
-        labels = []
-        
-        for i in range(n):
-            labels.append(f"F{i+1}")
-            labels.append(f"R{i+1}")
-        
-        analyzer = DimerAnalyzer()
-        
-        # Calculate all pairwise dimers
-        all_sequences = []
-        for p in primers[:n]:
-            all_sequences.append(p.forward_seq)
-            all_sequences.append(p.reverse_seq)
-        
-        for i, seq1 in enumerate(all_sequences):
-            for j, seq2 in enumerate(all_sequences):
-                if i != j:
-                    dimer = analyzer.analyze_primer_dimers(seq1, seq2)
-                    dimer_matrix[i, j] = dimer.score
-        
-        # Create heatmap
-        fig = go.Figure(data=go.Heatmap(
-            z=dimer_matrix,
-            x=labels,
-            y=labels,
-            colorscale='RdYlGn_r',
-            text=np.round(dimer_matrix, 1),
-            texttemplate='%{text}',
-            textfont={"size": 8},
-            colorbar=dict(title="Dimer Score %")
-        ))
-        
-        fig.update_layout(
-            title="Primer-Primer Dimer Matrix",
-            xaxis_title="Primer",
-            yaxis_title="Primer",
-            height=500
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Dimer warnings
-        critical_dimers = []
-        for i in range(len(dimer_matrix)):
-            for j in range(i+1, len(dimer_matrix)):
-                if dimer_matrix[i, j] > 70:
-                    critical_dimers.append(f"{labels[i]} × {labels[j]}: {dimer_matrix[i, j]:.1f}%")
-        
-        if critical_dimers:
-            st.warning(f"⚠️ Critical dimer pairs detected: {', '.join(critical_dimers[:3])}")
-    
-    @staticmethod
-    def _render_target_coverage(primers: List[PrimerPair]):
-        """Render target coverage visualization"""
-        
-        if not any(p.target_position for p in primers):
-            st.info("No target position information available")
-            return
-        
-        # Create Gantt-like chart for primer coverage
-        fig = go.Figure()
-        
-        for i, primer in enumerate(primers[:10]):
-            if primer.target_position:
-                # Forward primer
-                fig.add_trace(go.Scatter(
-                    x=[primer.forward_position, 
-                       primer.forward_position + len(primer.forward_seq)],
-                    y=[i, i],
-                    mode='lines',
-                    line=dict(color='blue', width=10),
-                    name=f'F{i+1}',
-                    showlegend=i == 0,
-                    legendgroup='forward',
-                    hovertemplate=f'Forward {i+1}<br>Pos: %{{x}}'
-                ))
-                
-                # Reverse primer
-                fig.add_trace(go.Scatter(
-                    x=[primer.reverse_position - len(primer.reverse_seq),
-                       primer.reverse_position],
-                    y=[i, i],
-                    mode='lines',
-                    line=dict(color='red', width=10),
-                    name=f'R{i+1}',
-                    showlegend=i == 0,
-                    legendgroup='reverse',
-                    hovertemplate=f'Reverse {i+1}<br>Pos: %{{x}}'
-                ))
-                
-                # Target region
-                if primer.target_position:
-                    fig.add_shape(
-                        type="rect",
-                        x0=primer.target_position[0],
-                        x1=primer.target_position[1],
-                        y0=i - 0.2,
-                        y1=i + 0.2,
-                        fillcolor="lightgreen",
-                        opacity=0.3,
-                        line_width=0,
-                    )
-        
-        fig.update_layout(
-            title="Primer Binding Sites & Target Coverage",
-            xaxis_title="Position (bp)",
-            yaxis_title="Primer Set",
-            height=400,
-            yaxis=dict(
-                tickmode='array',
-                tickvals=list(range(min(10, len(primers)))),
-                ticktext=[f'Set {i+1}' for i in range(min(10, len(primers)))]
-            )
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    @staticmethod
-    def _render_distributions(primers: List[PrimerPair]):
-        """Render distribution plots"""
-        
-        # Create subplots
-        fig = make_subplots(
-            rows=2, cols=2,
-            subplot_titles=('Product Size Distribution', 'GC Content Distribution',
-                           'Tm Distribution', 'Confidence Score Distribution')
-        )
-        
-        # Product size
-        fig.add_trace(
-            go.Histogram(
-                x=[p.product_size for p in primers],
-                nbinsx=20,
-                marker_color='lightblue',
-                name='Product Size'
-            ),
-            row=1, col=1
-        )
-        
-        # GC content
-        gc_values = []
-        for p in primers:
-            gc_values.extend([p.forward_gc, p.reverse_gc])
-        
-        fig.add_trace(
-            go.Histogram(
-                x=gc_values,
-                nbinsx=20,
-                marker_color='lightgreen',
-                name='GC Content'
-            ),
-            row=1, col=2
-        )
-        
-        # Tm distribution
-        tm_values = []
-        for p in primers:
-            tm_values.extend([p.forward_tm, p.reverse_tm])
-        
-        fig.add_trace(
-            go.Histogram(
-                x=tm_values,
-                nbinsx=20,
-                marker_color='coral',
-                name='Tm'
-            ),
-            row=2, col=1
-        )
-        
-        # Confidence scores
-        fig.add_trace(
-            go.Histogram(
-                x=[p.confidence for p in primers],
-                nbinsx=20,
-                marker_color='purple',
-                name='Confidence'
-            ),
-            row=2, col=2
-        )
-        
-        fig.update_layout(height=600, showlegend=False)
-        fig.update_xaxes(title_text="Product Size (bp)", row=1, col=1)
-        fig.update_xaxes(title_text="GC %", row=1, col=2)
-        fig.update_xaxes(title_text="Tm (°C)", row=2, col=1)
-        fig.update_xaxes(title_text="Confidence %", row=2, col=2)
-        
-        st.plotly_chart(fig, use_container_width=True)
-
-# Keep the original helper classes
 class EnhancedPrimerDesigner:
     """Enhanced primer designer with improved algorithms"""
     
@@ -1186,8 +348,6 @@ class EnhancedPrimerDesigner:
             'complexity': 0.10,
             'penalty': 0.05
         }
-        
-        self.dimer_analyzer = DimerAnalyzer()
     
     def parse_sequence_input(self, sequence_input: str) -> Tuple[Optional[Dict], Optional[str]]:
         """Enhanced sequence parser supporting multiple formats"""
@@ -1235,43 +395,15 @@ class EnhancedPrimerDesigner:
                 'sequence': sequence,
                 'header': header,
                 'length': len(sequence),
-                'gc_content': self.calculate_gc(sequence),
+                'gc_content': GC(sequence),
                 'n_content': n_content
             }, None
             
         except Exception as e:
             return None, f"Error parsing sequence: {str(e)}"
     
-    def calculate_gc(self, sequence: str) -> float:
-        """Calculate GC content"""
-        if not sequence:
-            return 0.0
-        gc_count = sequence.count('G') + sequence.count('C')
-        return (gc_count / len(sequence)) * 100
-    
-    def calculate_tm(self, sequence: str, dnac: float = 50, saltc: float = 50) -> float:
-        """Calculate melting temperature using nearest neighbor method"""
-        sequence = str(sequence).upper()
-        if not sequence:
-            return 0.0
-        
-        # Simple Tm calculation for DNA
-        if len(sequence) < 14:
-            return 2 * (sequence.count('A') + sequence.count('T')) + 4 * (sequence.count('G') + sequence.count('C'))
-        
-        # Using GC content method for longer sequences
-        gc_content = (sequence.count('G') + sequence.count('C')) / len(sequence)
-        
-        # Basic formula: Tm = 81.5 + 0.41(%GC) - 675/length + salt correction
-        basic_tm = 81.5 + (0.41 * gc_content * 100) - (675 / len(sequence))
-        
-        # Salt correction (simplified)
-        salt_correction = 12.5 * np.log10(saltc / 1000)
-        
-        return basic_tm + salt_correction
-    
     def design_primers_enhanced(self, sequence_data: Dict, custom_params: Dict = None) -> Tuple[Optional[List[PrimerPair]], Optional[str]]:
-        """Enhanced primer design with dimer analysis"""
+        """Enhanced primer design with better error handling and multiple attempts"""
         try:
             sequence = sequence_data['sequence']
             seq_id = sequence_data['header']
@@ -1307,14 +439,18 @@ class EnhancedPrimerDesigner:
                 try:
                     # Try different Primer3 API calls
                     try:
+                        # Try the most common API first
                         results = primer3.designPrimers(seq_args, global_args)
                     except AttributeError:
                         try:
+                            # Try bindings.design_primers
                             results = primer3.bindings.design_primers(seq_args, global_args)
                         except AttributeError:
                             try:
+                                # Try bindings.designPrimers
                                 results = primer3.bindings.designPrimers(seq_args, global_args)
                             except:
+                                # Last resort - combine args
                                 combined_args = {**seq_args, **global_args}
                                 results = primer3.bindings.designPrimers(combined_args)
                     
@@ -1325,23 +461,6 @@ class EnhancedPrimerDesigner:
                         for i in range(num_returned):
                             primer_pair = self._extract_primer_pair(results, i)
                             if primer_pair:
-                                # Add dimer analysis
-                                primer_pair.self_dimer_forward = self.dimer_analyzer.analyze_primer_dimers(
-                                    primer_pair.forward_seq
-                                )
-                                primer_pair.self_dimer_reverse = self.dimer_analyzer.analyze_primer_dimers(
-                                    primer_pair.reverse_seq
-                                )
-                                primer_pair.hetero_dimer = self.dimer_analyzer.analyze_primer_dimers(
-                                    primer_pair.forward_seq, primer_pair.reverse_seq
-                                )
-                                primer_pair.hairpin_forward = self.dimer_analyzer.analyze_hairpin(
-                                    primer_pair.forward_seq
-                                )
-                                primer_pair.hairpin_reverse = self.dimer_analyzer.analyze_hairpin(
-                                    primer_pair.reverse_seq
-                                )
-                                
                                 all_primers.append(primer_pair)
                 
                 except Exception as e:
@@ -1513,39 +632,965 @@ class EnhancedPrimerDesigner:
         
         return unique_primers
 
-def main():
-    # Header with version badge
-    st.markdown(
-        '<h1 class="main-header">PrimersQuest Pro <span class="version-badge">v3.0</span></h1>',
-        unsafe_allow_html=True
+class ImprovedPrimerBankSearcher:
+    """Enhanced PrimerBank searcher with comprehensive multi-primer parsing"""
+    
+    def __init__(self):
+        self.base_url = "https://pga.mgh.harvard.edu"
+        self.search_url = "https://pga.mgh.harvard.edu/cgi-bin/primerbank/new_search2.cgi"
+        self.session = requests.Session()
+    
+    def search_primerbank(self, gene_symbol: str, species: str = "Human") -> Tuple[Optional[List[Dict]], Optional[str]]:
+        """Enhanced PrimerBank search with improved parsing"""
+        try:
+            # Initialize session with homepage visit
+            homepage_response = self.session.get(f"{self.base_url}/primerbank/", timeout=10)
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Origin': self.base_url,
+                'Referer': f"{self.base_url}/primerbank/",
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
+            }
+            
+            # Search parameters
+            data = {
+                'selectBox': 'NCBI Gene Symbol',
+                'species': species,
+                'searchBox': gene_symbol,
+                'Submit': 'Submit'
+            }
+            
+            response = self.session.post(self.search_url, data=data, headers=headers, timeout=15)
+            
+            if response.status_code != 200:
+                return None, f"Server error: {response.status_code}"
+            
+            # Parse all primer sets
+            return self._parse_all_primerbank_results(response.text, gene_symbol)
+            
+        except requests.exceptions.RequestException as e:
+            return None, f"Network error: {str(e)}"
+        except Exception as e:
+            return None, f"Search error: {str(e)}"
+    
+    def _parse_all_primerbank_results(self, html_content: str, gene_symbol: str) -> Tuple[Optional[List[Dict]], Optional[str]]:
+        """Parse ALL primer sets from PrimerBank results"""
+        try:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Check for no results
+            if 'no primer' in html_content.lower() or 'not found' in html_content.lower():
+                return None, f"No primers found for {gene_symbol}"
+            
+            all_primer_sets = []
+            
+            # Strategy 1: Find primer data in structured tables
+            # PrimerBank typically shows results in tables with specific patterns
+            tables = soup.find_all('table')
+            
+            for table in tables:
+                # Skip navigation or layout tables
+                if table.get('width') == '100%' or 'navigation' in str(table.get('class', [])):
+                    continue
+                
+                # Look for tables containing primer data
+                table_text = table.get_text()
+                if 'primer' in table_text.lower() or re.search(r'[ATGC]{18,}', table_text):
+                    primer_sets = self._extract_primers_from_table(table)
+                    all_primer_sets.extend(primer_sets)
+            
+            # Strategy 2: Find primer data in div/pre elements
+            # Sometimes primers are in preformatted text blocks
+            pre_elements = soup.find_all(['pre', 'div'])
+            for element in pre_elements:
+                text = element.get_text()
+                if re.search(r'[ATGC]{18,}', text):
+                    primer_sets = self._extract_primers_from_text_block(text)
+                    all_primer_sets.extend(primer_sets)
+            
+            # Strategy 3: Pattern-based extraction from entire page
+            if not all_primer_sets:
+                all_primer_sets = self._extract_primers_by_pattern(html_content)
+            
+            # Remove duplicates and organize
+            unique_primer_sets = self._deduplicate_primer_sets(all_primer_sets)
+            
+            # Enrich with metadata
+            for i, primer_set in enumerate(unique_primer_sets):
+                primer_set['set_number'] = i + 1
+                primer_set['gene_symbol'] = gene_symbol
+                primer_set['source'] = 'PrimerBank'
+                
+                # Calculate properties if not present
+                if 'forward_tm' not in primer_set and primer_set.get('forward_seq'):
+                    primer_set['forward_tm'] = Tm_NN(primer_set['forward_seq'])
+                if 'reverse_tm' not in primer_set and primer_set.get('reverse_seq'):
+                    primer_set['reverse_tm'] = Tm_NN(primer_set['reverse_seq'])
+                if 'forward_gc' not in primer_set and primer_set.get('forward_seq'):
+                    primer_set['forward_gc'] = GC(primer_set['forward_seq'])
+                if 'reverse_gc' not in primer_set and primer_set.get('reverse_seq'):
+                    primer_set['reverse_gc'] = GC(primer_set['reverse_seq'])
+            
+            if unique_primer_sets:
+                return unique_primer_sets, None
+            else:
+                return None, f"Could not parse primer information for {gene_symbol}"
+                
+        except Exception as e:
+            return None, f"Parsing error: {str(e)}"
+    
+    def _extract_primers_from_table(self, table) -> List[Dict]:
+        """Extract primer sets from a table element"""
+        primer_sets = []
+        rows = table.find_all('tr')
+        
+        current_set = {}
+        primerbank_id = None
+        
+        for row in rows:
+            cells = row.find_all(['td', 'th'])
+            if not cells:
+                continue
+            
+            row_text = ' '.join(cell.get_text().strip() for cell in cells)
+            
+            # Look for PrimerBank ID
+            id_match = re.search(r'(\d+[a-z]\d+)', row_text)
+            if id_match:
+                primerbank_id = id_match.group(1)
+            
+            # Look for primer sequences
+            for cell in cells:
+                cell_text = cell.get_text().strip()
+                
+                # Check if this is a primer sequence
+                if re.match(r'^[ATGC]{18,30}$', cell_text, re.IGNORECASE):
+                    seq = cell_text.upper()
+                    
+                    # Determine if it's forward or reverse based on context
+                    prev_text = row_text.lower()
+                    if 'forward' in prev_text or 'left' in prev_text or 'primer 1' in prev_text:
+                        current_set['forward_seq'] = seq
+                    elif 'reverse' in prev_text or 'right' in prev_text or 'primer 2' in prev_text:
+                        current_set['reverse_seq'] = seq
+                    elif 'probe' in prev_text or 'primer 3' in prev_text:
+                        current_set['probe_seq'] = seq
+                    else:
+                        # If no context, assign based on what we have
+                        if 'forward_seq' not in current_set:
+                            current_set['forward_seq'] = seq
+                        elif 'reverse_seq' not in current_set:
+                            current_set['reverse_seq'] = seq
+                        else:
+                            current_set['probe_seq'] = seq
+            
+            # Look for product size
+            size_match = re.search(r'(\d+)\s*bp', row_text, re.IGNORECASE)
+            if size_match:
+                current_set['product_size'] = int(size_match.group(1))
+            
+            # Look for Tm
+            tm_match = re.search(r'(\d+\.?\d*)\s*°?C', row_text)
+            if tm_match:
+                current_set['tm_info'] = float(tm_match.group(1))
+            
+            # If we have a complete primer pair, save it
+            if 'forward_seq' in current_set and 'reverse_seq' in current_set:
+                if primerbank_id:
+                    current_set['primerbank_id'] = primerbank_id
+                primer_sets.append(current_set.copy())
+                # Reset for next set but keep the ID
+                current_set = {}
+        
+        return primer_sets
+    
+    def _extract_primers_from_text_block(self, text: str) -> List[Dict]:
+        """Extract primer sets from a text block"""
+        primer_sets = []
+        lines = text.split('\n')
+        
+        current_set = {}
+        
+        for i, line in enumerate(lines):
+            line = line.strip()
+            
+            # Look for primer sequences
+            seq_match = re.search(r'([ATGC]{18,30})', line, re.IGNORECASE)
+            if seq_match:
+                seq = seq_match.group(1).upper()
+                
+                # Check context from current and previous lines
+                context = ' '.join(lines[max(0, i-1):i+1]).lower()
+                
+                if 'forward' in context or 'left' in context:
+                    current_set['forward_seq'] = seq
+                elif 'reverse' in context or 'right' in context:
+                    current_set['reverse_seq'] = seq
+                elif 'probe' in context:
+                    current_set['probe_seq'] = seq
+                else:
+                    # Assign based on what we have
+                    if 'forward_seq' not in current_set:
+                        current_set['forward_seq'] = seq
+                    elif 'reverse_seq' not in current_set:
+                        current_set['reverse_seq'] = seq
+                        # We have a pair, save it
+                        primer_sets.append(current_set.copy())
+                        current_set = {}
+            
+            # Look for metadata
+            if 'primerbank id' in line.lower():
+                id_match = re.search(r'(\d+[a-z]\d+)', line)
+                if id_match:
+                    current_set['primerbank_id'] = id_match.group(1)
+            
+            size_match = re.search(r'(\d+)\s*bp', line)
+            if size_match:
+                current_set['product_size'] = int(size_match.group(1))
+        
+        # Don't forget the last set
+        if 'forward_seq' in current_set and 'reverse_seq' in current_set:
+            primer_sets.append(current_set)
+        
+        return primer_sets
+    
+    def _extract_primers_by_pattern(self, html_content: str) -> List[Dict]:
+        """Extract primers using pattern matching on the entire content"""
+        primer_sets = []
+        
+        # Remove HTML tags for cleaner pattern matching
+        text = BeautifulSoup(html_content, 'html.parser').get_text()
+        
+        # Find all potential primer sequences
+        primer_pattern = r'([ATGC]{18,30})'
+        all_sequences = re.findall(primer_pattern, text, re.IGNORECASE)
+        
+        # Find all PrimerBank IDs
+        id_pattern = r'(\d+[a-z]\d+)'
+        all_ids = re.findall(id_pattern, text)
+        
+        # Group sequences into sets
+        # Assuming primers come in pairs or triplets
+        for i in range(0, len(all_sequences), 2):
+            if i + 1 < len(all_sequences):
+                primer_set = {
+                    'forward_seq': all_sequences[i].upper(),
+                    'reverse_seq': all_sequences[i + 1].upper()
+                }
+                
+                # Add probe if available
+                if i + 2 < len(all_sequences) and (i + 3 >= len(all_sequences) or i % 3 == 0):
+                    primer_set['probe_seq'] = all_sequences[i + 2].upper()
+                
+                # Try to associate with PrimerBank ID
+                if all_ids and len(primer_sets) < len(all_ids):
+                    primer_set['primerbank_id'] = all_ids[len(primer_sets)]
+                
+                primer_sets.append(primer_set)
+        
+        return primer_sets
+    
+    def _deduplicate_primer_sets(self, primer_sets: List[Dict]) -> List[Dict]:
+        """Remove duplicate primer sets"""
+        unique_sets = []
+        seen_pairs = set()
+        
+        for primer_set in primer_sets:
+            # Create a unique key based on sequences
+            forward = primer_set.get('forward_seq', '')
+            reverse = primer_set.get('reverse_seq', '')
+            
+            if forward and reverse:
+                pair_key = (forward, reverse)
+                if pair_key not in seen_pairs:
+                    seen_pairs.add(pair_key)
+                    unique_sets.append(primer_set)
+        
+        return unique_sets
+
+
+def calculate_primer_metrics(sequence: str) -> Dict:
+    """Calculate basic primer metrics"""
+    if not sequence:
+        return {'length': 0, 'gc': 0, 'tm': 0}
+    
+    return {
+        'length': len(sequence),
+        'gc': GC(sequence),
+        'tm': Tm_NN(sequence)
+    }
+
+
+def calculate_primer_quality_score(primer_set: Dict) -> int:
+    """Calculate quality score for a primer set"""
+    score = 100
+    
+    forward_seq = primer_set.get('forward_seq', '')
+    reverse_seq = primer_set.get('reverse_seq', '')
+    
+    if not forward_seq or not reverse_seq:
+        return 0
+    
+    # Calculate metrics
+    f_metrics = calculate_primer_metrics(forward_seq)
+    r_metrics = calculate_primer_metrics(reverse_seq)
+    
+    # Tm difference penalty
+    tm_diff = abs(f_metrics['tm'] - r_metrics['tm'])
+    if tm_diff > 5:
+        score -= 20
+    elif tm_diff > 3:
+        score -= 10
+    elif tm_diff > 1:
+        score -= 5
+    
+    # GC content penalty
+    for gc in [f_metrics['gc'], r_metrics['gc']]:
+        if gc < 30 or gc > 70:
+            score -= 15
+        elif gc < 40 or gc > 60:
+            score -= 5
+    
+    # Length penalty
+    for length in [f_metrics['length'], r_metrics['length']]:
+        if length < 18 or length > 25:
+            score -= 10
+        elif length < 19 or length > 23:
+            score -= 5
+    
+    # Bonus for having probe
+    if primer_set.get('probe_seq'):
+        score += 5
+    
+    # Bonus for having product size info
+    if primer_set.get('product_size'):
+        size = primer_set['product_size']
+        if 80 <= size <= 150:
+            score += 5
+    
+    return max(0, min(100, score))
+
+
+def analyze_primer_pair(forward_seq: str, reverse_seq: str) -> Dict:
+    """Analyze primer pair compatibility"""
+    f_metrics = calculate_primer_metrics(forward_seq)
+    r_metrics = calculate_primer_metrics(reverse_seq)
+    
+    # Check for polyrun
+    has_polyrun = bool(re.search(r'([ATGC])\1{3,}', forward_seq + reverse_seq))
+    
+    return {
+        'tm_diff': abs(f_metrics['tm'] - r_metrics['tm']),
+        'gc_diff': abs(f_metrics['gc'] - r_metrics['gc']),
+        'length_diff': abs(f_metrics['length'] - r_metrics['length']),
+        'avg_length': (f_metrics['length'] + r_metrics['length']) / 2,
+        'forward_3_end': forward_seq[-2:] if forward_seq else '',
+        'reverse_3_end': reverse_seq[-2:] if reverse_seq else '',
+        'has_polyrun': has_polyrun
+    }
+
+
+def display_all_primerbank_results(primer_sets: List[Dict], species: str):
+    """Display all PrimerBank results in an organized manner"""
+    
+    if not primer_sets:
+        st.warning("No primer sets found")
+        return
+    
+    # Summary card
+    st.markdown(f"""### 🎯 PrimerBank Search Results""")
+    st.info(f"Found **{len(primer_sets)}** validated primer set(s) for **{primer_sets[0].get('gene_symbol', 'your gene')}**")
+    
+    # Display each primer set in detailed view
+    for idx, primer_set in enumerate(primer_sets):
+        display_detailed_primerbank_card(primer_set, idx + 1, species)
+        st.write("") # Add spacing between cards
+    
+    # Comparative analysis if more than one set is found
+    if len(primer_sets) > 1:
+        display_primerbank_comparison(primer_sets)
+    
+    # Bulk export
+    if len(primer_sets) > 0:
+        st.markdown("### 💾 Export All Primer Sets")
+        export_primerbank_data(primer_sets)
+
+
+def display_detailed_primerbank_card(primer_set: Dict, index: int, species: str):
+    """Display detailed view of a primer set using native Streamlit components"""
+    forward_seq = primer_set.get('forward_seq', '')
+    reverse_seq = primer_set.get('reverse_seq', '')
+    probe_seq = primer_set.get('probe_seq', '')
+    quality_score = calculate_primer_quality_score(primer_set)
+    primerbank_id = primer_set.get("primerbank_id", "")
+
+    with st.container(border=True):
+        # --- Card Header ---
+        col1, col2 = st.columns([3, 2])
+        with col1:
+            if primerbank_id:
+                st.subheader(f"🧬 Primer Set {index} - ID: {primerbank_id}")
+            else:
+                st.subheader(f"🧬 Primer Set {index}")
+
+        with col2:
+            st.success("✓ Experimentally Validated")
+            if quality_score >= 85:
+                st.markdown(f"**Quality Score: <span style='color:green;'>{quality_score}%</span>**", unsafe_allow_html=True)
+            elif quality_score >= 70:
+                st.markdown(f"**Quality Score: <span style='color:orange;'>{quality_score}%</span>**", unsafe_allow_html=True)
+            else:
+                st.markdown(f"**Quality Score: <span style='color:red;'>{quality_score}%</span>**", unsafe_allow_html=True)
+
+        st.divider()
+
+        # --- Primer Sequences ---
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("##### Forward Primer")
+            st.code(forward_seq, language="dna")
+            if forward_seq:
+                metrics = calculate_primer_metrics(forward_seq)
+                mcol1, mcol2, mcol3 = st.columns(3)
+                mcol1.metric("Length", f"{metrics['length']} bp")
+                mcol2.metric("GC%", f"{metrics['gc']:.1f}%")
+                mcol3.metric("Tm", f"{metrics['tm']:.1f}°C")
+
+        with col2:
+            st.markdown("##### Reverse Primer")
+            st.code(reverse_seq, language="dna")
+            if reverse_seq:
+                metrics = calculate_primer_metrics(reverse_seq)
+                mcol1, mcol2, mcol3 = st.columns(3)
+                mcol1.metric("Length", f"{metrics['length']} bp")
+                mcol2.metric("GC%", f"{metrics['gc']:.1f}%")
+                mcol3.metric("Tm", f"{metrics['tm']:.1f}°C")
+        
+        # --- Probe Sequence ---
+        if probe_seq:
+            st.markdown("##### 🔬 TaqMan Probe")
+            st.code(probe_seq, language="dna")
+            metrics = calculate_primer_metrics(probe_seq)
+            pcol1, pcol2, pcol3, pcol4 = st.columns(4)
+            pcol1.metric("Length", f"{metrics['length']} bp")
+            pcol2.metric("GC%", f"{metrics['gc']:.1f}%")
+            pcol3.metric("Tm", f"{metrics['tm']:.1f}°C")
+            pcol4.metric("Type", "TaqMan" if len(probe_seq) < 30 else "Molecular Beacon")
+
+        # --- Product Info & Analysis ---
+        if primer_set.get('product_size'):
+            st.markdown(f"**Expected Product Size:** {primer_set['product_size']} bp")
+
+        with st.expander("📊 Detailed Analysis"):
+            analysis = analyze_primer_pair(forward_seq, reverse_seq)
+            
+            acol1, acol2 = st.columns(2)
+            with acol1:
+                st.markdown("###### Compatibility Metrics")
+                st.write(f"**Tm Difference:** {analysis['tm_diff']:.1f}°C")
+                st.write(f"**GC Difference:** {analysis['gc_diff']:.1f}%")
+                st.write(f"**Length Difference:** {analysis['length_diff']} bp")
+            
+            with acol2:
+                st.markdown("###### Design Features")
+                st.write(f"**3' End Stability (F):** `{analysis['forward_3_end']}`")
+                st.write(f"**3' End Stability (R):** `{analysis['reverse_3_end']}`")
+                st.write(f"**Contains homopolymer runs > 3:** {'Yes' if analysis['has_polyrun'] else 'No'}")
+
+        # --- Action Buttons ---
+        st.divider()
+        bcol1, bcol2, bcol3 = st.columns(3)
+        with bcol1:
+            blast_url = create_primer_blast_url(forward_seq, reverse_seq, species)
+            st.link_button("🎯 Validate with Primer-BLAST", blast_url)
+
+        with bcol2:
+            sequences_text = f"Forward: {forward_seq}\nReverse: {reverse_seq}"
+            if probe_seq:
+                sequences_text += f"\nProbe: {probe_seq}"
+            st.download_button(f"📋 Download Sequences", data=sequences_text, file_name=f"primer_set_{index}.txt", key=f"copy_{index}")
+        
+        with bcol3:
+            primerbank_url = f"https://pga.mgh.harvard.edu/primerbank/index.html"
+            st.link_button("🔗 View on PrimerBank", primerbank_url)
+
+
+def display_primerbank_comparison(primer_sets: List[Dict]):
+    """Display comparative analysis of multiple primer sets"""
+    
+    st.markdown("### 📊 Comparative Analysis")
+    
+    # Prepare comparison data
+    comparison_data = []
+    for i, primer_set in enumerate(primer_sets):
+        forward_seq = primer_set.get('forward_seq', '')
+        reverse_seq = primer_set.get('reverse_seq', '')
+        
+        if forward_seq and reverse_seq:
+            f_metrics = calculate_primer_metrics(forward_seq)
+            r_metrics = calculate_primer_metrics(reverse_seq)
+            
+            comparison_data.append({
+                'Set': f"Set {i + 1}",
+                'Product Size': primer_set.get('product_size', 'N/A'),
+                'Avg Length': (f_metrics['length'] + r_metrics['length']) / 2,
+                'Avg GC%': (f_metrics['gc'] + r_metrics['gc']) / 2,
+                'Avg Tm': (f_metrics['tm'] + r_metrics['tm']) / 2,
+                'Tm Diff': abs(f_metrics['tm'] - r_metrics['tm']),
+                'Has Probe': 'Yes' if primer_set.get('probe_seq') else 'No'
+            })
+    
+    if comparison_data:
+        df = pd.DataFrame(comparison_data)
+        
+        # Display comparison table
+        st.dataframe(df.style.format({
+            'Avg Length': '{:.1f}',
+            'Avg GC%': '{:.1f}',
+            'Avg Tm': '{:.1f}',
+            'Tm Diff': '{:.1f}'
+        }))
+        
+        # Visualizations
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Tm comparison
+            fig1 = go.Figure()
+            for i, primer_set in enumerate(primer_sets):
+                if primer_set.get('forward_seq') and primer_set.get('reverse_seq'):
+                    f_tm = primer_set.get('forward_tm', Tm_NN(primer_set['forward_seq']))
+                    r_tm = primer_set.get('reverse_tm', Tm_NN(primer_set['reverse_seq']))
+                    
+                    fig1.add_trace(go.Scatter(
+                        x=[f'Set {i+1} Forward', f'Set {i+1} Reverse'],
+                        y=[f_tm, r_tm],
+                        mode='lines+markers',
+                        name=f'Set {i+1}',
+                        line=dict(width=2),
+                        marker=dict(size=10)
+                    ))
+            
+            fig1.update_layout(
+                title='Melting Temperature Comparison',
+                xaxis_title='Primer',
+                yaxis_title='Tm (°C)',
+                height=300
+            )
+            st.plotly_chart(fig1, use_container_width=True)
+        
+        with col2:
+            # GC content comparison
+            fig2 = go.Figure()
+            sets = []
+            gc_values = []
+            
+            for i, row in df.iterrows():
+                sets.append(row['Set'])
+                gc_values.append(row['Avg GC%'])
+            
+            fig2.add_trace(go.Bar(
+                x=sets,
+                y=gc_values,
+                marker_color=['#10b981' if 45 <= gc <= 55 else '#f59e0b' if 40 <= gc <= 60 else '#ef4444' 
+                             for gc in gc_values]
+            ))
+            
+            fig2.add_hline(y=50, line_dash="dash", line_color="gray", annotation_text="Optimal")
+            fig2.update_layout(
+                title='Average GC Content',
+                xaxis_title='Primer Set',
+                yaxis_title='GC %',
+                height=300
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+        
+        # Recommendations
+        st.markdown("### 💡 Recommendations")
+        
+        best_set = None
+        best_score = 0
+        
+        for i, primer_set in enumerate(primer_sets):
+            score = calculate_primer_quality_score(primer_set)
+            if score > best_score:
+                best_score = score
+                best_set = i + 1
+        
+        if best_set:
+            st.success(f"**Recommended: Set {best_set}** (Quality Score: {best_score}%)")
+            
+            # Explain why
+            best_primer = primer_sets[best_set - 1]
+            reasons = []
+            
+            tm_diff = comparison_data[best_set - 1]['Tm Diff']
+            if tm_diff <= 1:
+                reasons.append("Excellent Tm matching")
+            
+            avg_gc = comparison_data[best_set - 1]['Avg GC%']
+            if 45 <= avg_gc <= 55:
+                reasons.append("Optimal GC content")
+            
+            if best_primer.get('probe_seq'):
+                reasons.append("Includes validated probe")
+            
+            if reasons:
+                st.write("**Reasons:** " + ", ".join(reasons))
+
+
+def export_primerbank_data(primer_sets: List[Dict]):
+    """Export PrimerBank data in multiple formats"""
+    col1, col2, col3 = st.columns(3)
+    
+    # Prepare export data
+    export_data = []
+    for i, primer_set in enumerate(primer_sets):
+        export_entry = {
+            'Set_Number': i + 1,
+            'Gene_Symbol': primer_set.get('gene_symbol', ''),
+            'PrimerBank_ID': primer_set.get('primerbank_id', ''),
+            'Forward_Sequence': primer_set.get('forward_seq', ''),
+            'Reverse_Sequence': primer_set.get('reverse_seq', ''),
+            'Probe_Sequence': primer_set.get('probe_seq', ''),
+            'Product_Size': primer_set.get('product_size', ''),
+            'Forward_Tm': primer_set.get('forward_tm', ''),
+            'Reverse_Tm': primer_set.get('reverse_tm', ''),
+            'Forward_GC': primer_set.get('forward_gc', ''),
+            'Reverse_GC': primer_set.get('reverse_gc', '')
+        }
+        export_data.append(export_entry)
+    
+    # CSV export
+    with col1:
+        csv_data = pd.DataFrame(export_data).to_csv(index=False)
+        st.download_button(
+            label="📥 Download CSV",
+            data=csv_data,
+            file_name=f"primerbank_{primer_sets[0].get('gene_symbol', 'results')}.csv",
+            mime="text/csv"
+        )
+    
+    # JSON export
+    with col2:
+        json_data = json.dumps(export_data, indent=2)
+        st.download_button(
+            label="📥 Download JSON",
+            data=json_data,
+            file_name=f"primerbank_{primer_sets[0].get('gene_symbol', 'results')}.json",
+            mime="application/json"
+        )
+    
+    # Lab format (simplified)
+    with col3:
+        lab_format = []
+        for i, primer_set in enumerate(primer_sets):
+            lab_format.append(f"Set {i+1}:")
+            lab_format.append(f"Forward: {primer_set.get('forward_seq', '')}")
+            lab_format.append(f"Reverse: {primer_set.get('reverse_seq', '')}")
+            if primer_set.get('probe_seq'):
+                lab_format.append(f"Probe: {primer_set.get('probe_seq')}")
+            lab_format.append("")
+        
+        lab_text = "\n".join(lab_format)
+        st.download_button(
+            label="📥 Download Lab Format",
+            data=lab_text,
+            file_name=f"primerbank_{primer_sets[0].get('gene_symbol', 'primers')}.txt",
+            mime="text/plain"
+        )
+
+
+def create_primer_visualization(sequence: str, primers: List[PrimerPair]) -> go.Figure:
+    """Create interactive visualization of primer binding sites"""
+    fig = go.Figure()
+    
+    # Add sequence track
+    fig.add_trace(go.Scatter(
+        x=[0, len(sequence)],
+        y=[0, 0],
+        mode='lines',
+        line=dict(color='lightgray', width=10),
+        name='Target Sequence',
+        hoverinfo='skip'
+    ))
+    
+    # Add primer binding sites
+    colors = px.colors.qualitative.Set3
+    
+    for i, primer in enumerate(primers[:5]):  # Show top 5 primers
+        color = colors[i % len(colors)]
+        
+        # Forward primer
+        fig.add_trace(go.Scatter(
+            x=[primer.forward_position, primer.forward_position + len(primer.forward_seq)],
+            y=[0.2 + i * 0.15, 0.2 + i * 0.15],
+            mode='lines+markers',
+            line=dict(color=color, width=8),
+            marker=dict(size=10, symbol='arrow-right', angleref='previous'),
+            name=f'Pair {i+1} Forward',
+            hovertemplate=f'Forward Primer {i+1}<br>Position: %{{x}}<br>Tm: {primer.forward_tm:.1f}°C'
+        ))
+        
+        # Reverse primer
+        fig.add_trace(go.Scatter(
+            x=[primer.reverse_position - len(primer.reverse_seq), primer.reverse_position],
+            y=[-0.2 - i * 0.15, -0.2 - i * 0.15],
+            mode='lines+markers',
+            line=dict(color=color, width=8),
+            marker=dict(size=10, symbol='arrow-left', angleref='previous'),
+            name=f'Pair {i+1} Reverse',
+            hovertemplate=f'Reverse Primer {i+1}<br>Position: %{{x}}<br>Tm: {primer.reverse_tm:.1f}°C'
+        ))
+    
+    fig.update_layout(
+        title="Primer Binding Sites Visualization",
+        xaxis_title="Position (bp)",
+        yaxis_title="",
+        height=400,
+        showlegend=True,
+        hovermode='x unified',
+        yaxis=dict(showticklabels=False, range=[-1.5, 1.5])
     )
+    
+    return fig
+
+def display_enhanced_primer_card(primer: PrimerPair, index: int, species: str):
+    """Display enhanced primer card using native Streamlit components"""
+    with st.container(border=True):
+        # --- Card Header ---
+        col1, col2 = st.columns([3, 2])
+        with col1:
+            st.subheader(f"🧬 Primer Pair {index + 1}")
+        with col2:
+            if primer.confidence >= 85:
+                st.success(f"✅ EXCELLENT ({primer.confidence}%)")
+            elif primer.confidence >= 70:
+                st.warning(f"⚠️ GOOD ({primer.confidence}%)")
+            else:
+                st.error(f"❌ NEEDS OPTIMIZATION ({primer.confidence}%)")
+
+        st.divider()
+
+        # --- Primer Details ---
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("##### Forward Primer")
+            st.code(primer.forward_seq, language="dna")
+            mcol1, mcol2 = st.columns(2)
+            mcol1.metric("Length", f"{len(primer.forward_seq)} bp")
+            mcol1.metric("GC Content", f"{primer.forward_gc:.1f}%")
+            mcol2.metric("Tm", f"{primer.forward_tm:.1f}°C")
+            mcol2.metric("Position", f"{primer.forward_position}")
+
+        with col2:
+            st.markdown("##### Reverse Primer")
+            st.code(primer.reverse_seq, language="dna")
+            mcol1, mcol2 = st.columns(2)
+            mcol1.metric("Length", f"{len(primer.reverse_seq)} bp")
+            mcol1.metric("GC Content", f"{primer.reverse_gc:.1f}%")
+            mcol2.metric("Tm", f"{primer.reverse_tm:.1f}°C")
+            mcol2.metric("Position", f"{primer.reverse_position}")
+
+        st.divider()
+
+        # --- Product Analysis ---
+        st.markdown("#### 📊 PCR Product Analysis")
+        prod_col1, prod_col2, prod_col3, prod_col4 = st.columns(4)
+        prod_col1.metric("Product Size", f"{primer.product_size} bp")
+        prod_col2.metric("ΔTm", f"{abs(primer.forward_tm - primer.reverse_tm):.1f}°C")
+        prod_col3.metric("Avg GC%", f"{(primer.forward_gc + primer.reverse_gc) / 2:.1f}%")
+        prod_col4.metric("Penalty", f"{primer.penalty:.2f}")
+
+
+        # --- Advanced Analysis ---
+        with st.expander("🔬 Advanced Analysis"):
+            adv_col1, adv_col2 = st.columns(2)
+            with adv_col1:
+                st.markdown("##### Thermodynamic Properties")
+                st.write(f"**Heterodimer ΔG:** {primer.additional_info.get('self_any_th', 'N/A')}°C")
+                st.write(f"**3' Heterodimer ΔG:** {primer.additional_info.get('self_end_th', 'N/A')}°C")
+            with adv_col2:
+                st.markdown("##### End Stability")
+                st.write(f"**Forward 3' Stability:** {primer.additional_info.get('left_end_stability', 'N/A')}")
+                st.write(f"**Reverse 3' Stability:** {primer.additional_info.get('right_end_stability', 'N/A')}")
+
+        # --- BLAST Button ---
+        st.divider()
+        blast_url = create_primer_blast_url(primer.forward_seq, primer.reverse_seq, species)
+        st.link_button("🎯 Validate with NCBI Primer-BLAST", blast_url, use_container_width=True)
+
+
+def create_analysis_dashboard(primers: List[PrimerPair]) -> None:
+    """Create comprehensive analysis dashboard"""
+    
+    # Prepare data for analysis
+    df_data = []
+    for i, primer in enumerate(primers):
+        df_data.append({
+            'Index': i + 1,
+            'Confidence': primer.confidence,
+            'Forward_Tm': primer.forward_tm,
+            'Reverse_Tm': primer.reverse_tm,
+            'Tm_Difference': abs(primer.forward_tm - primer.reverse_tm),
+            'Forward_GC': primer.forward_gc,
+            'Reverse_GC': primer.reverse_gc,
+            'Avg_GC': (primer.forward_gc + primer.reverse_gc) / 2,
+            'Product_Size': primer.product_size,
+            'Penalty': primer.penalty
+        })
+    
+    df = pd.DataFrame(df_data)
+    
+    # Create visualizations
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Confidence distribution
+        fig1 = px.bar(df, x='Index', y='Confidence',
+                      title='Primer Confidence Scores',
+                      labels={'Index': 'Primer Pair', 'Confidence': 'Confidence (%)'},
+                      color='Confidence',
+                      color_continuous_scale='viridis')
+        fig1.add_hline(y=85, line_dash="dash", line_color="green", 
+                       annotation_text="Excellent Threshold")
+        fig1.add_hline(y=70, line_dash="dash", line_color="orange",
+                       annotation_text="Good Threshold")
+        st.plotly_chart(fig1, use_container_width=True)
+    
+    with col2:
+        # Tm correlation
+        fig2 = px.scatter(df, x='Forward_Tm', y='Reverse_Tm',
+                         size='Product_Size', color='Confidence',
+                         title='Melting Temperature Correlation',
+                         labels={'Forward_Tm': 'Forward Tm (°C)', 
+                                'Reverse_Tm': 'Reverse Tm (°C)'},
+                         hover_data=['Index', 'Product_Size'])
+        
+        # Add ideal line
+        min_tm = min(df['Forward_Tm'].min(), df['Reverse_Tm'].min())
+        max_tm = max(df['Forward_Tm'].max(), df['Reverse_Tm'].max())
+        fig2.add_shape(type="line", x0=min_tm, y0=min_tm, x1=max_tm, y1=max_tm,
+                      line=dict(color="red", dash="dash"))
+        st.plotly_chart(fig2, use_container_width=True)
+    
+    # Product size distribution
+    fig3 = px.histogram(df, x='Product_Size', nbins=20,
+                       title='PCR Product Size Distribution',
+                       labels={'Product_Size': 'Product Size (bp)', 'count': 'Frequency'})
+    fig3.add_vline(x=100, line_dash="dash", line_color="green",
+                   annotation_text="Optimal for qPCR")
+    st.plotly_chart(fig3, use_container_width=True)
+    
+    # Summary statistics
+    st.markdown("### 📊 Summary Statistics")
+    
+    stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+    
+    with stat_col1:
+        st.metric("Average Confidence", f"{df['Confidence'].mean():.1f}%")
+        st.metric("Excellent Primers", f"{len(df[df['Confidence'] >= 85])}/{len(df)}")
+    
+    with stat_col2:
+        st.metric("Avg Tm Difference", f"{df['Tm_Difference'].mean():.2f}°C")
+        st.metric("Optimal Tm Pairs", f"{len(df[df['Tm_Difference'] <= 1])}/{len(df)}")
+    
+    with stat_col3:
+        st.metric("Avg Product Size", f"{df['Product_Size'].mean():.0f} bp")
+        st.metric("Optimal Size Range", f"{len(df[(df['Product_Size'] >= 80) & (df['Product_Size'] <= 150)])}/{len(df)}")
+    
+    with stat_col4:
+        st.metric("Avg GC Content", f"{df['Avg_GC'].mean():.1f}%")
+        st.metric("Avg Penalty Score", f"{df['Penalty'].mean():.2f}")
+
+def create_primer_blast_url(forward_seq: str, reverse_seq: str, species: str) -> str:
+    """Create NCBI Primer-BLAST URL for the correct species."""
+    base_url = "https://www.ncbi.nlm.nih.gov/tools/primer-blast/index.cgi"
+    
+    # Map app species to NCBI organism
+    organism_map = {
+        "Human": "Homo sapiens",
+        "Mouse": "Mus musculus"
+    }
+    ncbi_organism = organism_map.get(species, "Homo sapiens") # Default to Human if not found
+
+    params = {
+        'PRIMER_LEFT_INPUT': forward_seq,
+        'PRIMER_RIGHT_INPUT': reverse_seq,
+        'PRIMER_PRODUCT_MIN': 70,
+        'PRIMER_PRODUCT_MAX': 300,
+        'PRIMER_NUM_RETURN': 20,
+        'PRIMER_MIN_TM': 57,
+        'PRIMER_OPT_TM': 60,
+        'PRIMER_MAX_TM': 63,
+        'PRIMER_SPECIFICITY_DATABASE': 'refseq_rna',
+        'ORGANISM': ncbi_organism
+    }
+    return f"{base_url}?" + urllib.parse.urlencode(params)
+
+def main():
+    # Track page load
+    st.markdown("""
+    <script>
+        // Track page load event
+        if (typeof gtag !== 'undefined') {
+            gtag('event', 'page_view', {
+                'page_title': 'PrimersQuest Pro',
+                'page_location': window.location.href
+            });
+        }
+    </script>
+    """, unsafe_allow_html=True)
+    
+    # Check for required dependencies
+    try:
+        import primer3
+    except ImportError:
+        st.error("""
+        ❌ **Missing Required Dependency: primer3-py**
+        
+        Please install it using:
+        ```bash
+        pip install primer3-py
+        ```
+        
+        For conda users:
+        ```bash
+        conda install -c bioconda primer3-py
+        ```
+        """)
+        st.stop()
+    
+    # Header
+    st.markdown('<h1 class="main-header">PrimersQuest Pro</h1>', unsafe_allow_html=True)
     st.markdown("""
     <p style="text-align: center; color: #718096; font-size: 1.125rem;">
-    Advanced qPCR primer design with dimer analysis and modern visualization
+    An advanced tool for qPCR primer design and validation
     </p>
     """, unsafe_allow_html=True)
     
     # Initialize tools
     designer = EnhancedPrimerDesigner()
-    targeted_designer = TargetedPrimerDesigner()
-    analyzer = DimerAnalyzer()
+    searcher = ImprovedPrimerBankSearcher()
     
-    # Sidebar
+    # Initialize custom parameters
+    custom_params = {}
+    
+    # Sidebar configuration
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
         
-        # Design mode
-        design_mode = st.radio(
-            "Design Mode",
-            ["Standard", "Targeted Region", "Dimer-Optimized"],
-            help="Choose primer design strategy"
-        )
-        
-        # Parameters
+        # Design parameters
         with st.expander("🔧 Design Parameters", expanded=False):
             custom_params = {}
             
-            st.markdown("#### Temperature")
+            st.markdown("#### Temperature Settings")
             min_tm = st.slider("Min Tm (°C)", 55.0, 65.0, 58.0, 0.5)
             max_tm = st.slider("Max Tm (°C)", 55.0, 65.0, 62.0, 0.5)
             custom_params['PRIMER_MIN_TM'] = min_tm
@@ -1556,252 +1601,319 @@ def main():
             max_size = st.number_input("Max Size (bp)", 50, 500, 150)
             custom_params['PRIMER_PRODUCT_SIZE_RANGE'] = [[min_size, max_size]]
             
-            st.markdown("#### Dimer Thresholds")
-            max_self_any = st.slider("Max Self Any (°C)", 30.0, 50.0, 40.0, 1.0)
-            max_self_end = st.slider("Max Self End (°C)", 20.0, 40.0, 35.0, 1.0)
-            custom_params['PRIMER_MAX_SELF_ANY_TH'] = max_self_any
-            custom_params['PRIMER_MAX_SELF_END_TH'] = max_self_end
+            st.markdown("#### GC Content")
+            min_gc = st.slider("Min GC%", 20, 80, 40)
+            max_gc = st.slider("Max GC%", 20, 80, 60)
+            custom_params['PRIMER_MIN_GC'] = min_gc
+            custom_params['PRIMER_MAX_GC'] = max_gc
         
-        st.markdown("### 📊 Display Options")
-        show_details = st.checkbox("Show detailed cards", value=False)
-        max_primers = st.slider("Max primers to display", 5, 20, 10)
-        
-        st.markdown("### 🔗 Resources")
+        st.markdown("### 📚 Resources")
         st.markdown("""
+        - [Primer3 Documentation](http://primer3.org/)
         - [NCBI Primer-BLAST](https://www.ncbi.nlm.nih.gov/tools/primer-blast/)
-        - [Primer3 Docs](http://primer3.org/)
+        - [PrimerBank Database](https://pga.mgh.harvard.edu/primerbank/)
         - [qPCR Guidelines](https://pubmed.ncbi.nlm.nih.gov/19246619/)
         """)
+
+        # --- Custom Donate Button ---
+        st.markdown("### 🙏 Support This App")
+        button_html = """
+        <a href="https://www.buymeacoffee.com/primerquest" target="_blank" class="custom-donate-button" onclick="trackEvent('External_Links', 'donate_click', 'buy_me_coffee');">
+            Buy Me a Coffee ☕
+        </a>
+        """
+        st.markdown(button_html, unsafe_allow_html=True)
+
+        # Check BioPython status
+        with st.expander("ℹ️ System Status", expanded=False):
+            if SeqIO:
+                st.success("✅ BioPython detected (Enhanced FASTA parsing enabled)")
+            else:
+                st.warning("⚠️ BioPython not installed (Using basic FASTA parser)")
     
-    # Main tabs
+    # Main content tabs
     tab1, tab2, tab3, tab4 = st.tabs([
-        "🎯 Design Primers",
-        "🔬 Dimer Analysis",
-        "📊 Dashboard",
-        "📚 Help"
+        "🎯 Custom Design", 
+        "🔍 PrimerBank Search", 
+        "📊 Analysis Dashboard",
+        "ℹ️ About"
     ])
     
     with tab1:
-        st.markdown("### Design Custom Primers")
+        st.markdown('<h2 class="sub-header">Design Custom Primers</h2>', unsafe_allow_html=True)
         
         # Sequence input
-        sequence_input = st.text_area(
-            "Enter target sequence (FASTA or raw):",
-            height=200,
-            placeholder=">Gene_Name\nATGCGATCG..."
-        )
+        col1, col2 = st.columns([3, 1])
         
-        # Targeted region options
-        if design_mode == "Targeted Region":
-            col1, col2 = st.columns(2)
-            with col1:
-                target_start = st.number_input("Target Start (bp)", 1, 10000, 100)
-            with col2:
-                target_end = st.number_input("Target End (bp)", 1, 10000, 300)
+        with col1:
+            sequence_input = st.text_area(
+                "Enter your target sequence (FASTA format or raw sequence):",
+                height=250,
+                placeholder=""">Gene_Name Optional description
+ATGGCAGAAATCGGTGTCAACGGATTTGGCCGTATTGGGCGCCTGGTCACCAGGGCTGCTTTTA
+ACTCTGGTAAAGTGGATATTGTTGCCATCAATGACCCCTTCATTGACCTCAACTACATGGTTTA
+CATGTGCCCAGAGTATGCCGGAGACCCCTTTCACACATGCAGCACCTATCAGGCTGTACTCC...
+                
+Or paste raw sequence:
+ATGGCAGAAATCGGTGTCAACGGATTTGGC...""",
+                help="Minimum 100 bp, maximum 10,000 bp"
+            )
+        
+        with col2:
+            st.markdown("### 📋 Quick Stats")
+            if sequence_input.strip():
+                seq_data, _ = designer.parse_sequence_input(sequence_input)
+                if seq_data:
+                    st.metric("Length", f"{seq_data['length']} bp")
+                    st.metric("GC Content", f"{seq_data['gc_content']:.1f}%")
+                    st.metric("N Content", f"{seq_data['n_content']:.1f}%")
+                else:
+                    st.info("Enter valid sequence")
+            else:
+                st.info("Paste sequence to see stats")
         
         if st.button("🚀 Design Primers", type="primary", use_container_width=True):
+            # Add tracking
+            st.markdown("""
+            <script>
+                trackEvent('Primer_Design', 'design_button_click', 'custom_design');
+            </script>
+            """, unsafe_allow_html=True)
+            
             if sequence_input.strip():
-                with st.spinner("🧬 Analyzing sequence and designing primers..."):
+                with st.spinner("🧬 Analyzing sequence and designing optimal primers..."):
                     # Parse sequence
                     seq_data, error = designer.parse_sequence_input(sequence_input)
                     
                     if error:
                         st.error(f"❌ {error}")
+                        st.markdown("""
+                        <script>
+                            trackEvent('Primer_Design', 'design_error', 'parse_error');
+                        </script>
+                        """, unsafe_allow_html=True)
                     else:
-                        # Design primers based on mode
-                        if design_mode == "Targeted Region":
-                            primers = targeted_designer.design_for_region(
-                                seq_data['sequence'],
-                                target_start,
-                                target_end,
-                                custom_params
-                            )
-                            primers = (primers, None) if primers else (None, "No primers found")
-                        else:
-                            primers = designer.design_primers_enhanced(seq_data, custom_params)
+                        # Design primers
+                        primers, error = designer.design_primers_enhanced(
+                            seq_data, 
+                            custom_params
+                        )
                         
-                        if primers[1]:  # Error
-                            st.error(f"❌ {primers[1]}")
-                        elif primers[0]:  # Success
-                            st.success(f"✅ Successfully designed {len(primers[0])} primer pairs!")
-                            st.session_state['designed_primers'] = primers[0]
-                            st.session_state['target_sequence'] = seq_data['sequence']
+                        if error:
+                            st.error(f"❌ {error}")
+                            st.markdown("""
+                            <script>
+                                trackEvent('Primer_Design', 'design_error', 'no_primers_found');
+                            </script>
+                            """, unsafe_allow_html=True)
+                        else:
+                            st.success(f"✅ Successfully designed {len(primers)} primer pairs!")
+                            st.markdown(f"""
+                            <script>
+                                trackEvent('Primer_Design', 'design_success', 'primers_generated', {len(primers)});
+                            </script>
+                            """, unsafe_allow_html=True)
                             
-                            # Display results as modern thread
-                            st.markdown("---")
-                            st.markdown("### 🧬 Primer Design Results")
-                            ModernPrimerCard.render_primer_thread(
-                                primers[0][:max_primers], 
-                                show_details
-                            )
+                            # Store in session state
+                            st.session_state['designed_primers'] = primers
+                            st.session_state['target_sequence'] = seq_data['sequence']
             else:
                 st.error("❌ Please enter a sequence")
-    
-    with tab2:
-        st.markdown("### Comprehensive Dimer Analysis")
-        
-        # Manual primer input for dimer checking
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            primer1 = st.text_input("Primer 1 (5' → 3')", placeholder="ATGCGATCGATCGATCG")
-        
-        with col2:
-            primer2 = st.text_input("Primer 2 (5' → 3')", placeholder="CGTAGCTAGCTAGCTAG")
-        
-        if st.button("Analyze Dimers", type="primary"):
-            if primer1:
-                with st.spinner("Analyzing dimer formation..."):
-                    # Self-dimer for primer 1
-                    if primer1:
-                        self_dimer1 = analyzer.analyze_primer_dimers(primer1)
-                        
-                        st.markdown("#### Primer 1 Self-Dimer")
-                        ModernPrimerCard._display_dimer_result(self_dimer1)
-                    
-                    # Self-dimer for primer 2
-                    if primer2:
-                        self_dimer2 = analyzer.analyze_primer_dimers(primer2)
-                        
-                        st.markdown("#### Primer 2 Self-Dimer")
-                        ModernPrimerCard._display_dimer_result(self_dimer2)
-                    
-                    # Heterodimer
-                    if primer1 and primer2:
-                        hetero_dimer = analyzer.analyze_primer_dimers(primer1, primer2)
-                        
-                        st.markdown("#### Heterodimer")
-                        ModernPrimerCard._display_dimer_result(hetero_dimer)
-                    
-                    # Hairpin analysis
-                    st.markdown("#### Hairpin Structures")
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if primer1:
-                            hairpin1 = analyzer.analyze_hairpin(primer1)
-                            st.markdown("**Primer 1 Hairpin**")
-                            if hairpin1['score'] > 0:
-                                st.info(f"Stem: {hairpin1['stem_length']} bp | "
-                                       f"Loop: {hairpin1['loop_length']} bp | "
-                                       f"Tm: {hairpin1['tm']:.1f}°C")
-                            else:
-                                st.success("No significant hairpin detected")
-                    
-                    with col2:
-                        if primer2:
-                            hairpin2 = analyzer.analyze_hairpin(primer2)
-                            st.markdown("**Primer 2 Hairpin**")
-                            if hairpin2['score'] > 0:
-                                st.info(f"Stem: {hairpin2['stem_length']} bp | "
-                                       f"Loop: {hairpin2['loop_length']} bp | "
-                                       f"Tm: {hairpin2['tm']:.1f}°C")
-                            else:
-                                st.success("No significant hairpin detected")
-    
-    with tab3:
-        st.markdown("### Analysis Dashboard")
-        
+
         if 'designed_primers' in st.session_state and st.session_state['designed_primers']:
-            EnhancedAnalysisDashboard.render_comprehensive_analysis(
-                st.session_state['designed_primers']
+            primers = st.session_state['designed_primers']
+            st.markdown("---")
+            st.markdown('<h2 class="sub-header">Custom Primer Results</h2>', unsafe_allow_html=True)
+            
+            # Visualization
+            if 'target_sequence' in st.session_state:
+                fig = create_primer_visualization(st.session_state['target_sequence'], primers)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # Add species selector for BLAST links
+            blast_species = st.selectbox(
+                "Select Organism for Primer-BLAST Validation:",
+                ("Human", "Mouse"),
+                key="blast_species_custom"
             )
             
-            # Export options
+            # Display primer cards
+            for i, primer in enumerate(primers):
+                display_enhanced_primer_card(primer, i, blast_species)
+                st.write("") # Add space between cards
+
+    with tab2:
+        st.markdown('<h2 class="sub-header">Search Validated Primers</h2>', unsafe_allow_html=True)
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            gene_symbol = st.text_input(
+                "Enter gene symbol:",
+                placeholder="e.g., GAPDH, ACTB, TP53",
+                help="Official gene symbol from NCBI Gene database"
+            )
+        
+        with col2:
+            species = st.selectbox(
+                "Species:",
+                ["Human", "Mouse"],
+                help="Select organism"
+            )
+        
+        if st.button("🔍 Search PrimerBank", type="primary", use_container_width=True):
+            # Add tracking
+            st.markdown(f"""
+            <script>
+                trackEvent('PrimerBank', 'search_button_click', '{gene_symbol}');
+            </script>
+            """, unsafe_allow_html=True)
+            
+            if gene_symbol.strip():
+                with st.spinner(f"🔎 Searching PrimerBank for {gene_symbol} ({species})..."):
+                    results, error = searcher.search_primerbank(gene_symbol.strip(), species)
+                    
+                    if error:
+                        st.error(f"❌ {error}")
+                        st.markdown(f"""
+                        <script>
+                            trackEvent('PrimerBank', 'search_error', '{gene_symbol}');
+                        </script>
+                        """, unsafe_allow_html=True)
+                        
+                        # Provide helpful alternatives
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            # Direct link to PrimerBank
+                            primerbank_url = f"https://pga.mgh.harvard.edu/cgi-bin/primerbank/new_search2.cgi?searchBox={gene_symbol}&selectBox=NCBI+Gene+Symbol&species={species}&Submit=Submit"
+                            st.link_button("🔗 Try Manual Search on PrimerBank", primerbank_url)
+                        
+                        with col2:
+                            # Alternative gene search
+                            ncbi_url = f"https://www.ncbi.nlm.nih.gov/gene/?term={gene_symbol}"
+                            st.link_button("🔍 Verify Gene Symbol on NCBI", ncbi_url)
+                            
+                    elif results:
+                        st.success(f"✅ Found {len(results)} validated primer sets!")
+                        st.markdown(f"""
+                        <script>
+                            trackEvent('PrimerBank', 'search_success', '{gene_symbol}', {len(results)});
+                        </script>
+                        """, unsafe_allow_html=True)
+                        
+                        # Store in session state
+                        st.session_state['primerbank_results'] = results
+                        
+                        # Display all results using the new function
+                        display_all_primerbank_results(results, species)
+
+                    else:
+                        st.warning("No results found")
+                        st.info("💡 Consider using the Custom Design tab for this gene")
+            else:
+                st.error("❌ Please enter a gene symbol")
+    
+    with tab3:
+        st.markdown('<h2 class="sub-header">Comprehensive Analysis Dashboard</h2>', unsafe_allow_html=True)
+        
+        if 'designed_primers' in st.session_state and st.session_state['designed_primers']:
+            create_analysis_dashboard(st.session_state['designed_primers'])
+            
+            # Export functionality
             st.markdown("### 💾 Export Results")
             
-            col1, col2, col3 = st.columns(3)
+            export_data = []
+            for i, primer in enumerate(st.session_state['designed_primers']):
+                export_data.append({
+                    'Pair_Number': i + 1,
+                    'Forward_Sequence': primer.forward_seq,
+                    'Reverse_Sequence': primer.reverse_seq,
+                    'Forward_Tm': primer.forward_tm,
+                    'Reverse_Tm': primer.reverse_tm,
+                    'Product_Size': primer.product_size,
+                    'Confidence_Score': primer.confidence
+                })
             
+            export_df = pd.DataFrame(export_data)
+            
+            col1, col2 = st.columns(2)
             with col1:
-                # CSV export
-                export_data = []
-                for i, p in enumerate(st.session_state['designed_primers']):
-                    export_data.append({
-                        'Set': i + 1,
-                        'Forward_Seq': p.forward_seq,
-                        'Reverse_Seq': p.reverse_seq,
-                        'Product_Size': p.product_size,
-                        'Confidence': p.confidence,
-                        'Forward_Tm': p.forward_tm,
-                        'Reverse_Tm': p.reverse_tm,
-                        'Forward_GC': p.forward_gc,
-                        'Reverse_GC': p.reverse_gc,
-                        'Dimer_Severity': p.hetero_dimer.severity if p.hetero_dimer else 'N/A'
-                    })
-                
-                df = pd.DataFrame(export_data)
-                csv = df.to_csv(index=False)
-                
+                csv = export_df.to_csv(index=False)
                 st.download_button(
-                    "📥 Download CSV",
+                    label="📥 Download as CSV",
                     data=csv,
-                    file_name="primer_results.csv",
+                    file_name="primer_design_results.csv",
                     mime="text/csv"
                 )
             
             with col2:
-                # JSON export
                 json_data = json.dumps(export_data, indent=2)
                 st.download_button(
-                    "📥 Download JSON",
+                    label="📥 Download as JSON",
                     data=json_data,
-                    file_name="primer_results.json",
+                    file_name="primer_design_results.json",
                     mime="application/json"
                 )
-            
-            with col3:
-                # Lab format
-                lab_text = []
-                for i, p in enumerate(st.session_state['designed_primers'][:10]):
-                    lab_text.append(f"Set {i+1}:")
-                    lab_text.append(f"  Forward: {p.forward_seq}")
-                    lab_text.append(f"  Reverse: {p.reverse_seq}")
-                    lab_text.append(f"  Product: {p.product_size} bp")
-                    lab_text.append(f"  Confidence: {p.confidence}%")
-                    lab_text.append("")
-                
-                st.download_button(
-                    "📥 Download Lab Format",
-                    data="\n".join(lab_text),
-                    file_name="primer_lab_format.txt",
-                    mime="text/plain"
-                )
         else:
-            st.info("🔬 No primer data available. Design primers first!")
+            st.info("🔬 No primer data available. Design primers or search PrimerBank first!")
     
     with tab4:
+        st.markdown('<h2 class="sub-header">About PrimersQuest Pro</h2>', unsafe_allow_html=True)
+        
         st.markdown("""
-        ### About PrimersQuest Pro v3.0
+        **PrimersQuest Pro** was developed with love by **Dr. Ahmed bey Chaker**, a Research Associate at King's College London, to support the scientific community.
         
-        **New Features:**
-        - 🔬 **Comprehensive Dimer Analysis**: Detect self-dimers, heterodimers, and hairpin structures
-        - 📍 **Targeted Position Design**: Design primers for specific genomic regions
-        - 🎨 **Modern Thread UI**: Social media-inspired interface for better visualization
-        - 📊 **Enhanced Dashboard**: Advanced analytics and visualizations
-        - 🧬 **Improved Scoring**: Updated confidence algorithm with dimer consideration
+        This tool was created to simplify and accelerate the often tedious process of designing high-quality primers for qPCR experiments. By integrating the robust algorithms of Primer3 with a user-friendly interface and direct access to the validated PrimerBank database, we hope to make your research more efficient and reliable.
+
+        If you find this application useful, please consider supporting its development and maintenance. Your contribution helps keep this tool free and available to all researchers.
+        """)
         
-        **Dimer Analysis Interpretation:**
-        - **Low Severity**: Minimal impact on PCR efficiency
-        - **Medium Severity**: May reduce efficiency, consider alternatives
-        - **High Severity**: Likely to cause issues, avoid if possible
-        - **Critical**: Will significantly impact PCR, must use different primers
+        st.markdown("---")
+
+        st.markdown("""
+        ### 🎯 Quick Guide
         
-        **Best Practices:**
-        1. Aim for confidence scores > 85%
-        2. Keep ΔTm < 1°C between primer pairs
-        3. Avoid dimers with scores > 60%
-        4. Check for hairpins with Tm > 50°C
-        5. Validate with NCBI Primer-BLAST
+        1.  **Custom Primer Design:**
+            - Go to the **"Custom Design"** tab.
+            - Paste your target DNA sequence (FASTA).
+            - Adjust parameters in the sidebar if needed (e.g., Tm, product size).
+            - Click **"Design Primers"** to get a list of optimized primer pairs.
         
-        **Developer:** Dr. Ahmed bey Chaker, King's College London
+        2.  **Search Validated Primers:**
+            - Go to the **"PrimerBank Search"** tab.
+            - Enter an official gene symbol (e.g., GAPDH).
+            - Select the correct species (Human or Mouse).
+            - Click **"Search PrimerBank"** to find experimentally validated primers.
+
+        ### 🔬 Best Practices
+        - **Always Validate:** Use the "Validate with Primer-BLAST" button to check the specificity of your primers against the target genome.
+        - **Check for SNPs:** Be aware of single nucleotide polymorphisms (SNPs) that may fall within your primer binding sites, as they can affect amplification efficiency.
+        - **Use High-Quality Sequences:** The quality of your input sequence directly impacts the quality of the primer design.
+        
+        ### 🔗 Related Resources
+        - **Primer3** - The underlying algorithm: [primer3.org](http://primer3.org/)
+        - **PrimerBank** - Harvard Medical School's validated primer database
+        - **NCBI Primer-BLAST** - For primer specificity checking
+        
+        ### 📧 Contact & Support
+        - **Developer:** Dr. Ahmed bey Chaker
+        - **Institution:** King's College London
+        - **LinkedIn:** [Connect on LinkedIn](https://www.linkedin.com/in/ahmed-bey-chaker-6b3908192/)
+        - **Support the App:** [Buy Me a Coffee](https://www.buymeacoffee.com/primerquest)
         """)
     
-    # Footer
+    # Footer with Schema Markup
     st.markdown("---")
     st.markdown("""
-    <div style='text-align: center; color: #718096; padding: 1rem;'>
-        PrimersQuest Pro v3.0 | Enhanced with Dimer Analysis & Modern UI<br>
-        Made with ❤️ by Dr. Ahmed bey Chaker
+    <div style='text-align: center; color: #718096; padding: 2rem;' itemscope itemtype="https://schema.org/WebApplication">
+        <p style="font-size: 0.875rem;">
+            <span itemprop="name">PrimersQuest Pro</span> | <span itemprop="description">An advanced tool for the scientific community</span><br>
+            Powered by Primer3 | Integrated with NCBI & Harvard PrimerBank<br>
+            Made with ❤️ by <a href="https://www.linkedin.com/in/ahmed-bey-chaker-6b3908192/" target="_blank" style="color: #718096; text-decoration: underline;" itemprop="author" onclick="trackEvent('External_Links', 'footer_linkedin_click', 'footer');">Dr. Ahmed bey Chaker</a>
+        </p>
+        <meta itemprop="applicationCategory" content="UtilityApplication">
+        <meta itemprop="operatingSystem" content="All">
+        <link itemprop="url" href="https://primersquest.com">
     </div>
     """, unsafe_allow_html=True)
 

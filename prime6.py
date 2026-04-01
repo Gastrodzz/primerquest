@@ -202,6 +202,52 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# SEO Meta Tags and Google Analytics
+st.markdown("""
+<head>
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-NGW0S1841L"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-NGW0S1841L');
+        function trackEvent(category, action, label, value) {
+            if (typeof gtag !== 'undefined') {
+                gtag('event', action, {
+                    'event_category': category,
+                    'event_label': label,
+                    'value': value
+                });
+            }
+        }
+    </script>
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="PrimersQuest Pro - Free online qPCR primer design tool with PrimerBank integration. Design and validate primers for Real-Time PCR, RT-qPCR experiments.">
+    <meta name="keywords" content="primer design, qPCR, PCR primers, PrimerBank, real-time PCR, RT-qPCR, primer3, NCBI primer blast, free primer design tool, molecular biology">
+    <meta name="author" content="Dr. Ahmed bey Chaker, King's College London">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://primersquest.streamlit.app">
+    <meta property="og:title" content="PrimersQuest Pro - Advanced qPCR Primer Design Tool">
+    <meta property="og:description" content="Design high-quality primers for qPCR with our free tool. Features PrimerBank search, Primer3 algorithm, and NCBI validation.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://primersquest.streamlit.app">
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "PrimersQuest Pro",
+        "description": "Advanced qPCR primer design tool with PrimerBank integration",
+        "url": "https://primersquest.streamlit.app",
+        "applicationCategory": "UtilityApplication",
+        "operatingSystem": "All",
+        "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+        "author": {"@type": "Person", "name": "Dr. Ahmed bey Chaker", "affiliation": {"@type": "Organization", "name": "King's College London"}}
+    }
+    </script>
+</head>
+""", unsafe_allow_html=True)
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -227,7 +273,7 @@ DESIGN_PRESETS = {
         'PRIMER_MAX_GC': 60.0,
         'PRIMER_MAX_POLY_X': 3,
         'PRIMER_PRODUCT_SIZE_RANGE': [[80, 150]],
-        'PRIMER_NUM_RETURN': 20,
+        'PRIMER_NUM_RETURN': 10,
         'PRIMER_MAX_SELF_ANY_TH': 45.0,
         'PRIMER_MAX_SELF_END_TH': 35.0,
         'PRIMER_PAIR_MAX_COMPL_ANY_TH': 45.0,
@@ -245,7 +291,7 @@ DESIGN_PRESETS = {
         'PRIMER_MAX_GC': 70.0,
         'PRIMER_MAX_POLY_X': 4,
         'PRIMER_PRODUCT_SIZE_RANGE': [[60, 120]],
-        'PRIMER_NUM_RETURN': 20,
+        'PRIMER_NUM_RETURN': 10,
         'PRIMER_MAX_SELF_ANY_TH': 45.0,
         'PRIMER_MAX_SELF_END_TH': 35.0,
         'PRIMER_PAIR_MAX_COMPL_ANY_TH': 45.0,
@@ -456,7 +502,7 @@ class PrimerDesigner:
                     all_primers.append(pp)
 
             # If we already have enough good primers, stop cascading
-            if len(all_primers) >= 10:
+            if len(all_primers) >= 8:
                 break
 
         if not all_primers:
@@ -477,7 +523,8 @@ class PrimerDesigner:
             p.confidence = self._score(p)
         unique.sort(key=lambda p: p.confidence, reverse=True)
 
-        return unique[:15], None
+        # Return top 5 — quality over quantity
+        return unique[:5], None
 
     # ---- Internal helpers --------------------------------------------------
 
@@ -928,11 +975,11 @@ def primer_blast_url(fwd: str, rev: str, species: str) -> str:
 def primer_quality_badge(score: int):
     """Return a Streamlit badge for quality."""
     if score >= 85:
-        st.success(f"Excellent — {score}%")
+        st.success(f"✅ EXCELLENT ({score}%)")
     elif score >= 70:
-        st.warning(f"Good — {score}%")
+        st.warning(f"⚠️ GOOD ({score}%)")
     else:
-        st.error(f"Needs optimisation — {score}%")
+        st.error(f"❌ NEEDS OPTIMISATION ({score}%)")
 
 
 def display_primer_card(p: PrimerPair, idx: int, species: str):
@@ -940,7 +987,7 @@ def display_primer_card(p: PrimerPair, idx: int, species: str):
     with st.container(border=True):
         hcol1, hcol2 = st.columns([3, 1])
         with hcol1:
-            st.markdown(f"#### Primer Pair {idx + 1}")
+            st.markdown(f"#### 🧬 Primer Pair {idx + 1}")
         with hcol2:
             primer_quality_badge(p.confidence)
 
@@ -1021,7 +1068,7 @@ def display_primer_card(p: PrimerPair, idx: int, species: str):
             })
             st.dataframe(breakdown_df, hide_index=True, use_container_width=True)
 
-        st.link_button("Validate with NCBI Primer-BLAST",
+        st.link_button("🎯 Validate with NCBI Primer-BLAST",
                        primer_blast_url(p.forward_seq, p.reverse_seq, species),
                        use_container_width=True)
 
@@ -1089,7 +1136,7 @@ def display_primerbank_card(ps: Dict, idx: int, species: str):
 # Export helpers
 # ---------------------------------------------------------------------------
 
-def export_designed_primers(primers: List[PrimerPair]):
+def export_designed_primers(primers: List[PrimerPair], key_prefix: str = "exp"):
     """Export designed primers in CSV, JSON, and lab format."""
     rows = []
     for i, p in enumerate(primers):
@@ -1115,11 +1162,13 @@ def export_designed_primers(primers: List[PrimerPair]):
     df = pd.DataFrame(rows)
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.download_button("Download CSV", df.to_csv(index=False),
-                           "primers.csv", "text/csv")
+        st.download_button("📥 Download CSV", df.to_csv(index=False),
+                           "primers.csv", "text/csv",
+                           key=f"{key_prefix}_csv")
     with c2:
-        st.download_button("Download JSON", json.dumps(rows, indent=2),
-                           "primers.json", "application/json")
+        st.download_button("📥 Download JSON", json.dumps(rows, indent=2),
+                           "primers.json", "application/json",
+                           key=f"{key_prefix}_json")
     with c3:
         lab = []
         for r in rows:
@@ -1131,8 +1180,9 @@ def export_designed_primers(primers: List[PrimerPair]):
             lab.append(f"  Product : {r['product_size']} bp")
             lab.append(f"  Fwd Tm  : {r['forward_tm']} °C | Rev Tm: {r['reverse_tm']} °C")
             lab.append("")
-        st.download_button("Download lab format", "\n".join(lab),
-                           "primers_lab.txt", "text/plain")
+        st.download_button("📥 Download Lab Format", "\n".join(lab),
+                           "primers_lab.txt", "text/plain",
+                           key=f"{key_prefix}_lab")
 
 
 # ---------------------------------------------------------------------------
@@ -1201,7 +1251,7 @@ def main():
 
     # ---- Tabs --------------------------------------------------------------
     tab_design, tab_bank, tab_analysis, tab_about = st.tabs([
-        "Custom Design", "PrimerBank Search", "Analysis Dashboard", "About"
+        "🎯 Custom Design", "🔍 PrimerBank Search", "📊 Analysis Dashboard", "ℹ️ About"
     ])
 
     # ================================================================
@@ -1308,10 +1358,7 @@ def main():
 
             # Export
             st.markdown("### Export")
-            export_designed_primers(primers)
-
-    # ================================================================
-    # TAB 2: PrimerBank Search
+            export_designed_primers(primers, key_prefix="design_export")
     # ================================================================
     with tab_bank:
         st.markdown("### Search Validated Primers")
@@ -1362,6 +1409,46 @@ def main():
                     })
                 st.dataframe(pd.DataFrame(comp), hide_index=True, use_container_width=True)
 
+                # Recommendations
+                st.markdown("### 💡 Recommendations")
+                best_idx = 0
+                best_score = 0
+                for i, ps in enumerate(results):
+                    fwd = ps.get('forward_seq', '')
+                    rev = ps.get('reverse_seq', '')
+                    if not fwd or not rev:
+                        continue
+                    score = 100
+                    tm_diff = abs(ps.get('forward_tm', 0) - ps.get('reverse_tm', 0))
+                    if tm_diff > 5: score -= 20
+                    elif tm_diff > 3: score -= 10
+                    elif tm_diff > 1: score -= 5
+                    for gc in [ps.get('forward_gc', 50), ps.get('reverse_gc', 50)]:
+                        if gc < 30 or gc > 70: score -= 15
+                        elif gc < 40 or gc > 60: score -= 5
+                    for length in [len(fwd), len(rev)]:
+                        if length < 18 or length > 25: score -= 10
+                    if score > best_score:
+                        best_score = score
+                        best_idx = i
+
+                reasons = []
+                best_ps = results[best_idx]
+                tm_diff = abs(best_ps.get('forward_tm', 0) - best_ps.get('reverse_tm', 0))
+                if tm_diff <= 1:
+                    reasons.append("excellent Tm matching")
+                avg_gc = (best_ps.get('forward_gc', 50) + best_ps.get('reverse_gc', 50)) / 2
+                if 45 <= avg_gc <= 55:
+                    reasons.append("optimal GC content")
+                if best_ps.get('probe_seq'):
+                    reasons.append("includes validated probe")
+                if best_ps.get('product_size') and 80 <= best_ps['product_size'] <= 150:
+                    reasons.append("ideal product size for qPCR")
+
+                st.success(f"**Recommended: Set {best_idx + 1}** (Quality Score: {best_score}%)")
+                if reasons:
+                    st.write("**Reasons:** " + ", ".join(reasons))
+
             # Export
             st.markdown("### Export")
             rows = []
@@ -1376,13 +1463,15 @@ def main():
                 })
             c1, c2 = st.columns(2)
             with c1:
-                st.download_button("Download CSV",
+                st.download_button("📥 Download CSV",
                                    pd.DataFrame(rows).to_csv(index=False),
-                                   "primerbank.csv", "text/csv")
+                                   "primerbank.csv", "text/csv",
+                                   key="pb_export_csv")
             with c2:
-                st.download_button("Download JSON",
+                st.download_button("📥 Download JSON",
                                    json.dumps(rows, indent=2),
-                                   "primerbank.json", "application/json")
+                                   "primerbank.json", "application/json",
+                                   key="pb_export_json")
 
     # ================================================================
     # TAB 3: Analysis Dashboard
@@ -1434,10 +1523,7 @@ def main():
 
             # Export
             st.markdown("### Export")
-            export_designed_primers(primers)
-
-    # ================================================================
-    # TAB 4: About
+            export_designed_primers(primers, key_prefix="analysis_export")
     # ================================================================
     with tab_about:
         st.markdown("### About PrimersQuest Pro")
@@ -1479,6 +1565,20 @@ def main():
             "specificity against the refseq transcriptome."
         )
 
+        st.markdown("#### 🔬 Best Practices")
+        st.markdown(
+            "- **Always validate** — Use the Primer-BLAST button to check specificity "
+            "against the target genome.\n"
+            "- **Check for SNPs** — Be aware of single nucleotide polymorphisms that may "
+            "fall within your primer binding sites.\n"
+            "- **Use high-quality sequences** — The quality of your input sequence directly "
+            "impacts primer design quality.\n"
+            "- **Run melt curves** — Always include melt curve analysis with SYBR Green to "
+            "confirm single product amplification.\n"
+            "- **Validate efficiency** — Run a 5-point serial dilution to confirm 90–110% "
+            "amplification efficiency and R² > 0.99."
+        )
+
         st.markdown("#### Resources")
         st.markdown(
             "- [Primer3](http://primer3.org/) — The underlying algorithm\n"
@@ -1495,10 +1595,14 @@ def main():
 
     # Footer
     st.divider()
-    st.caption(
-        "PrimersQuest Pro v3.0 · Powered by Primer3 · Integrated with NCBI & Harvard PrimerBank · "
-        "Made by Dr. Ahmed bey Chaker, King's College London"
-    )
+    st.markdown("""
+    <div style='text-align: center; color: #718096; padding: 1.5rem;' itemscope itemtype="https://schema.org/WebApplication">
+        <p style="font-size: 0.875rem;">
+            <span itemprop="name">PrimersQuest Pro</span> v3.0 | Powered by Primer3 | Integrated with NCBI & Harvard PrimerBank<br>
+            Made with ❤️ by <a href="https://www.linkedin.com/in/ahmed-bey-chaker-6b3908192/" target="_blank" style="color: #718096; text-decoration: underline;" itemprop="author">Dr. Ahmed bey Chaker</a>, King's College London
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 if __name__ == "__main__":

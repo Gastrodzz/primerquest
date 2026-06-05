@@ -2,8 +2,7 @@
 
 **PrimersQuest Pro** is a free, web-based qPCR primer design tool built with [Streamlit](https://streamlit.io). It combines the Primer3 thermodynamic engine with Harvard PrimerBank integration, interactive visualisations, and NCBI Primer-BLAST validation links — all in a single Python script.
 
-> Developed by **Dr. Ahmed bey Chaker**, King's College London.
-
+Demo : https://www.primersquest.com/
 ---
 
 ## ✨ Features
@@ -166,11 +165,4 @@ This project is released under the **MIT License**. See [LICENSE](LICENSE) for d
 
 ---
 
-## 👤 Author
 
-**Dr. Ahmed bey Chaker**  
-King's College London
-
----
-
-*PrimersQuest Pro v3.0 — Advanced qPCR primer design for the modern molecular biology lab.*
